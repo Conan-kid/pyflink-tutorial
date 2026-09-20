@@ -1,0 +1,40 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.python-version
+
+# ---- 运行时产物 ----
+data/
+*.log
+logs/
+output/
+checkpoints/
+savepoints/
+
+# ---- Flink 连接器 JAR ----
+# ⚠️ 这些 JAR 单个就有 20MB+，不适合进 Git。
+#    镜像构建时会从 Maven 中央仓库自动拉取（见 docker/pyflink-image/Dockerfile）。
+#    克隆后如需本地跑，执行：bash scripts/fetch_jars.sh
+jars/*.jar
+jars-optional/*.jar
+
+# ---- 敏感配置 ----
+# ⚠️ 真实密码只放 .env，绝不提交。
+#    模板 .env.example 要提交（下面感叹号 = 不要忽略它）
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ---- IDE ----
+.idea/
+.vscode/
+*.iml
+
+# ---- OS ----
+.DS_Store
+Thumbs.db

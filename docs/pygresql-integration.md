@@ -1,0 +1,593 @@
+# PyFlink × PostgreSQL 联动操作手册
+
+> 版本：2026-09-20 ｜ 环境：Flink 1.20.5 + PostgreSQL 16.15 ｜ **全部实测跑通**
+
+---
+
+## 0. 先看结论
+
+**Flink 官方没有单独的「PostgreSQL 连接器」**，因为用 **通用 JDBC 连接器 + PostgreSQL 驱动** 就够了。
+所以 pg 能做的事，本质上就是 JDBC 连接器能做的事 —— 而它能力相当完整：
+
+| 方向 | 能力 | 连接器 | 适用场景 |
+|---|---|---|---|
+| **pg → Flink** | 批量扫描全表 / 增量按时间戳拉取 | `jdbc` (Source) | 数据同步、离线分析、初始化加载 |
+| **Flink → pg** | INSERT / UPSERT / DELETE 写入 | `jdbc` (Sink) | 结果落库、报表预计算、指标回写 |
+| **pg → Flink** | Lookup Join（维表实时关联） | `jdbc` (Lookup Source) | 订单流关联用户/商品维度 |
+| **pg → Flink** | CDC 变更捕获（binlog 级） | `postgres-cdc` | 实时数仓、双写替代、异构同步 |
+| **pg → Flink** | 读分区表并行扫描 | `jdbc` + 分区参数 | 大表并行读取 |
+| **Flink → pg** | 两阶段提交（EXACTLY_ONCE） | `jdbc` + checkpoint | 金融级不丢不重 |
+
+---
+
+## 1. 环境准备（本机实测路径）
+
+### 1.1 网络拓扑（关键，务必先搞懂）
+
+本机的 Flink 和 PostgreSQL 是**两个独立的 compose 项目**：
+
+```
+pyflink-tutorial (网络: pyflink-tutorial_flink-net)
+  ├── pyflink-jobmanager       172.19.0.4
+  └── pyflink-taskmanager
+
+pg-course (网络: docker_pgnet)   ← 完全隔离！
+  ├── pg-primary   宿主映射 5432
+  └── pg-standby   宿主映射 5433
+```
+
+**核心结论：Flink 容器里写 `pg-primary` 是解析不到的**（实测 `getent hosts pg-primary` → `NO_RESOLVE`）。
+
+两条可行路线：
+
+| 路线 | 容器内地址 | 说明 |
+|---|---|---|
+| **A. 走宿主机回环**（推荐，零改动） | `host.docker.internal:5432` | 容器 → 宿主机网卡 → 端口映射 → pg 容器。<br>✅ 实测连通 |
+| **B. 共享网络** | `pg-primary:5432` | 需把 pg 容器加入 flink 网络，或两个 compose 声明同一个 external network |
+
+本文全部用 **路线 A**。
+
+### 1.2 装 PostgreSQL JDBC 驱动
+
+驱动不在 Flink 自带包里，**必须自己加**：
+
+```bash
+cd C:/Users/wzm/WorkBuddy/2026-09-20-09-28-01/pyflink-tutorial
+curl -fsSL -o jars/postgresql-42.7.4.jar \
+  https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.4/postgresql-42.7.4.jar
+```
+
+放好后由 entrypoint 自动软链到 `lib/` 顶层（本项目 Dockerfile 已配好）。
+验证：
+
+```bash
+docker exec pyflink-jobmanager ls -l /opt/flink/lib/postgresql-42.7.4.jar
+# 期望：软链指向 /opt/flink/lib/connectors/postgresql-42.7.4.jar
+```
+
+### 1.3 环境变量（已在 compose 注入）
+
+```yaml
+PG_HOST: host.docker.internal
+PG_PORT: "5432"
+PG_DB: shop
+PG_USER: shop
+PG_PASSWORD: shop123
+```
+
+这样示例代码里读环境变量即可，**容器内和宿主机跑同一份代码**：
+
+```python
+PG_HOST = os.environ.get("PG_HOST", "localhost")   # 宿主机默认 localhost
+PG_PORT = os.environ.get("PG_PORT", "5432")
+```
+
+> ⚠️ `host.docker.internal` 在 Linux 容器上需要 `extra_hosts: ["host.docker.internal:host-gateway"]`，
+> 本项目 compose 已加，Windows/Mac 的 Docker Desktop 本身也内置。
+
+---
+
+## 2. 建表：JDBC Sink 不会自动建表
+
+**这是最容易踩的坑**：Flink 的 JDBC connector **只写数据，不建表**。
+目标表必须预先存在，否则报 `relation "xxx" does not exist`。
+
+```sql
+-- 先在 pg 里建好
+CREATE TABLE IF NOT EXISTS flink_user_stats (
+    status      SMALLINT PRIMARY KEY,
+    user_cnt    BIGINT,
+    avg_balance NUMERIC(12,2),
+    updated_at  TIMESTAMP
+);
+```
+
+> 💡 生产建议：用 Flyway / Liquibase 或 SQL 脚本统一管 schema，别让 Flink 作业负责建表。
+
+**字段类型映射（pg ↔ Flink）**：
+
+| PostgreSQL | Flink SQL |
+|---|---|
+| `SMALLINT` / `INT` / `BIGINT` | 同左 |
+| `NUMERIC(p,s)` / `DECIMAL` | `DECIMAL(p,s)` |
+| `VARCHAR(n)` / `TEXT` | `VARCHAR(n)` / `STRING` |
+| `TIMESTAMP` | `TIMESTAMP(3)` |
+| `DATE` | `DATE` |
+| `JSONB` | `STRING`（需自定义序列化）或 `RAW` |
+| `BOOLEAN` | `BOOLEAN` |
+
+---
+
+## 3. 四种核心操作
+
+### 3.1 pg → Flink：JDBC Source 读数据
+
+```python
+env.execute_sql("""
+    CREATE TABLE pg_users (
+        id         BIGINT,
+        username   VARCHAR(64),
+        email      VARCHAR(128),
+        status     SMALLINT,
+        level      SMALLINT,
+        balance    DECIMAL(12, 2),
+        created_at TIMESTAMP(3),
+        PRIMARY KEY (id) NOT ENFORCED
+    ) WITH (
+        'connector' = 'jdbc',
+        'url'       = 'jdbc:postgresql://host.docker.internal:5432/shop',
+        'username'  = 'shop',
+        'password'  = 'shop123',
+        'driver'    = 'org.postgresql.Driver',
+        'table-name' = 'users'
+    )
+""")
+```
+
+**扫描并行度**（大表加速）：
+
+```sql
+'scan.partition.column' = 'id',
+'scan.partition.num'    = '8',        -- 切成 8 份并行读
+'scan.partition.lower-bound' = '0',
+'scan.partition.upper-bound' = '1000000',
+'scan.fetch-size'       = '1000'      -- 每次拉取行数，防内存爆
+```
+
+**增量拉取**（按时间戳，适合定时同步）：
+
+```sql
+'scan.auto-commit.enabled' = 'true',
+-- 配合 WHERE created_at > ? 由上游调度传入
+```
+
+> ⚠️ **JDBC Source 是「有界」的**（扫完就结束），不是真正的流。要真流必须用 CDC（见 3.5）。
+
+**实测结果**（本机 shop 库 users 表 10000 行）：
+
+```
+  status |         人数 |           平均余额
+----------------------------------------
+       1 |       9687 |         992.82
+       2 |        163 |        1034.15
+       3 |        150 |         953.74
+----------------------------------------
+      合计 |      10000 |
+```
+
+### 3.2 Flink → pg：JDBC Sink 写数据
+
+```python
+env.execute_sql("""
+    CREATE TABLE pg_user_stats (
+        status      SMALLINT,
+        user_cnt    BIGINT,
+        avg_balance DECIMAL(12, 2),
+        updated_at  TIMESTAMP(3),
+        PRIMARY KEY (status) NOT ENFORCED    -- ← 有主键 = UPSERT 模式
+    ) WITH (
+        'connector' = 'jdbc',
+        'url'       = 'jdbc:postgresql://host.docker.internal:5432/shop',
+        'username'  = 'shop',
+        'password'  = 'shop123',
+        'driver'    = 'org.postgresql.Driver',
+        'table-name' = 'flink_user_stats'
+    )
+""")
+```
+
+**关键：有没有 `PRIMARY KEY` 决定写入语义**
+
+| 声明 | 生成 SQL | 语义 |
+|---|---|---|
+| **有** `PRIMARY KEY` | `INSERT ... ON CONFLICT ... DO UPDATE` | **UPSERT**（幂等，可重放） |
+| **无** | 普通 `INSERT` | 追加，重跑会重复 |
+
+> PostgreSQL 特有：connector 3.2+ 支持 `ON CONFLICT DO NOTHING` /
+> 通过 `sink.ignore-delete` 控制是否同步 DELETE。
+
+**批式写入（推荐做法，用 StatementSet）**：
+
+```python
+stmt_set = env.create_statement_set()
+stmt_set.add_insert_sql("""
+    INSERT INTO pg_user_stats
+    SELECT status,
+           COUNT(*) AS user_cnt,
+           CAST(ROUND(AVG(balance), 2) AS DECIMAL(12, 2)) AS avg_balance,
+           CURRENT_TIMESTAMP
+    FROM pg_users
+    GROUP BY status
+""")
+stmt_set.execute().wait()
+```
+
+**实测确认**（psql 直查 pg）：
+
+```
+ status | user_cnt | avg_balance |     updated_at
+--------+----------+-------------+---------------------
+      1 |     9687 |      992.82 | 2026-09-20 07:06:58
+      2 |      163 |     1034.15 | 2026-09-20 07:06:58
+      3 |      150 |      953.74 | 2026-09-20 07:06:58
+```
+
+**写并发控制**：
+
+```sql
+'sink.buffer-flush.max-rows' = '1000',    -- 攒够 1000 行批量提交
+'sink.buffer-flush.interval' = '1s',      -- 或每秒刷一次
+'sink.max-retries'           = '3'        -- 失败重试
+```
+
+### 3.3 pg 当维表：Lookup Join（最实用的场景）
+
+把 pg 表当"字典"做实时关联，**不用把整张维表加载进内存**：
+
+```python
+# 主表（真实场景是 Kafka 订单流）
+env.execute_sql("""
+    CREATE TABLE order_stream (
+        order_id   BIGINT,
+        user_id    BIGINT,
+        pay_amount DECIMAL(12, 2),
+        proc_time  AS PROCTIME()      -- ← Lookup Join 必需的处理时间列
+    ) WITH ('connector' = 'datagen', ...)
+""")
+
+# 维表
+env.execute_sql("""
+    CREATE TABLE pg_users_dim (
+        id       BIGINT,
+        username VARCHAR(64),
+        status   SMALLINT,
+        level    SMALLINT,
+        PRIMARY KEY (id) NOT ENFORCED
+    ) WITH (
+        'connector' = 'jdbc',
+        'url'       = 'jdbc:postgresql://host.docker.internal:5432/shop',
+        'table-name' = 'users',
+        'lookup.cache.max-rows' = '1000',    -- 缓存最多 1000 条
+        'lookup.cache.ttl'      = '1min'     -- 缓存 1 分钟过期
+    )
+""")
+
+# 关联
+env.execute_sql("""
+    SELECT o.order_id, o.user_id, u.username, u.level, o.pay_amount
+    FROM order_stream AS o
+    LEFT JOIN pg_users_dim FOR SYSTEM_TIME AS OF o.proc_time AS u
+        ON o.user_id = u.id
+""")
+```
+
+**实测结果**：
+
+```
+ order_id |  user_id |         username |  level |  pay_amount
+------------------------------------------------------------------
+        1 |       12 |       user000012 |      4 |      379.84
+        2 |       18 |       user000018 |      4 |       10.20
+        3 |       13 |       user000013 |      2 |      611.88
+        4 |       10 |       user000010 |      3 |      492.01
+        5 |       12 |       user000012 |      4 |      220.85
+```
+
+**要点**：
+- `FOR SYSTEM_TIME AS OF <proctime列>` 是**语法必需**，缺了报错
+- **必须缓存**，否则每条流数据打一次 pg，连接数瞬间打满
+- `lookup.cache` 有两种：`PARTIAL`（默认，只缓存 max-rows）和 `FULL`（全量加载+定期刷新，适合小维表）
+
+### 3.4 汇总：一段完整的端到端脚本
+
+已落地为 **`examples/09_postgres_integration.py`**，一次覆盖四种操作：
+
+```bash
+# 容器内跑（推荐）
+docker exec pyflink-jobmanager bash -c \
+  "cd /opt/flink && python examples/09_postgres_integration.py --local"
+
+# 宿主机跑（需本地装 apache-flink）
+python examples/09_postgres_integration.py
+```
+
+> ⚠️ **必须加 `--local`（批模式）**。原因见第 4 节最大的坑。
+
+### 3.5 CDC：真正实时的 pg 变更捕获
+
+JDBC Source 是拉取式的（polling），有延迟。要**准实时**捕获 pg 的 INSERT/UPDATE/DELETE，
+需要用 **CDC 连接器**（基于 pg 的逻辑复制槽 `wal_level=logical`）。
+
+**依赖**：
+
+```
+flink-connector-postgres-cdc-3.0.1.jar
+```
+
+**Flink SQL 用法**：
+
+```sql
+CREATE TABLE orders_cdc (
+    id         BIGINT,
+    order_no   VARCHAR(64),
+    user_id    BIGINT,
+    status     SMALLINT,
+    pay_amount DECIMAL(12,2),
+    created_at TIMESTAMP(3),
+    PRIMARY KEY (id) NOT ENFORCED
+) WITH (
+    'connector'      = 'postgres-cdc',
+    'hostname'       = 'host.docker.internal',
+    'port'           = '5432',
+    'database-name'  = 'shop',
+    'schema-name'    = 'public',
+    'table-name'     = 'orders',
+    'username'       = 'shop',
+    'password'       = 'shop123',
+    'decoding.plugin.name' = 'pgoutput',
+    'slot.name'      = 'flink_orders_slot',
+    'debezium.snapshot.mode' = 'initial'    -- 先全量快照，再增量
+);
+```
+
+**pg 侧前置条件**（⚠️ 需要改 pg 配置并重启）：
+
+```ini
+# postgresql.conf
+wal_level = logical              # 默认是 replica，必须改
+max_replication_slots = 10
+max_wal_senders = 10
+```
+
+```sql
+-- 账号需有 REPLICATION 权限或超级用户
+ALTER ROLE shop WITH REPLICATION;
+```
+
+**CDC vs JDBC 对比**：
+
+| | JDBC Source | PostgreSQL CDC |
+|---|---|---|
+| 实时性 | 分钟级（轮询） | 秒级 / 亚秒级 |
+| 能否捕获 DELETE | ❌ | ✅ |
+| 能否捕获 UPDATE | 需主键+轮询 | ✅ |
+| 对 pg 压力 | 重复查询 | 读 WAL，压力小 |
+| pg 配置要求 | 无 | **需 `wal_level=logical` + 重启** |
+| 适用 | 定时同步、初始化 | 实时数仓、双写替代 |
+
+> 💡 **本机注意**：pg-course 的主从复制用的是 `wal_level=replica`，改成 `logical` 需重启主库。
+> 想在本机试 CDC，改配置后要 `docker restart pg-primary`，且从库会短暂中断。
+> 另外逻辑复制槽**会持有 WAL**，消费者停久了 pg 磁盘会被撑爆 —— 生产必须监控。
+
+---
+
+## 4. 踩坑清单（实测，含血泪）
+
+### 4.1 【最大的坑】流模式不能对普通字段 ORDER BY
+
+**报错**：
+
+```
+org.apache.flink.table.api.TableException:
+Sort on a non-time-attribute field is not supported.
+```
+
+**原因**：Flink **流模式**下数据是无界的，"排序"在语义上不成立，只允许按时间属性排。
+
+**解法**：pg 的扫描/聚合/排序场景用 **批模式**：
+
+```python
+env = TableEnvironment.create(EnvironmentSettings.in_batch_mode())
+```
+
+**判断规则**：
+
+| 场景 | 模式 |
+|---|---|
+| 读 pg 表做统计、导出、排序 | **批模式** |
+| pg 当维表 Lookup Join | **流模式** |
+| CDC 实时同步 | **流模式** |
+| 结果定时回写 pg | 批模式（或 StatementSet） |
+
+### 4.2 两个 compose 项目的网络是隔离的
+
+`pg-primary` 在 Flink 容器里 `NO_RESOLVE`。用 `host.docker.internal` 走宿主机回环。
+
+### 4.3 JDBC Sink 不建表
+
+目标表必须预存在，否则 `relation does not exist`。
+
+### 4.4 忘了加 `extra_hosts` 时 Linux 上解析失败
+
+Windows/Mac 的 Docker Desktop 内置了 `host.docker.internal`，Linux 上要显式声明：
+
+```yaml
+extra_hosts:
+  - "host.docker.internal:host-gateway"
+```
+
+### 4.5 分区表 INSERT 必须带分区键
+
+本机 `orders` 表按 `created_at` 分区（11 个分区），**INSERT 不提供 `created_at` 会报 `no partition found`**。
+Flink 写这种表时，schema 里必须包含分区键字段。
+
+### 4.6 从库是只读的
+
+往 `pg-standby` 写会报：
+
+```
+ERROR: cannot execute INSERT in a read-only transaction
+```
+
+这不是故障，是流复制的正常行为。**Flink 只能写主库**。
+
+### 4.7 连接池/并行度打爆 pg
+
+默认并行度 = CPU 核数，每个 subtask 一个连接。8 并行的 Lookup Join 就是 8 个常驻连接，
+再叠加多个作业，很容易触顶 `max_connections`（默认 100）。
+
+**解法**：
+```python
+env.get_config().set("parallelism.default", "1")   # 本地测试
+```
+```sql
+'lookup.cache.max-rows' = '1000',   -- 必须开缓存
+'sink.buffer-flush.max-rows' = '1000'
+```
+生产建议前置 **PgBouncer**（pg-course 第 12 章有）。
+
+### 4.8 参数化时别用 f-string 嵌 f-string
+
+```python
+# ❌ 报错：Encountered "f" at line N
+env.execute_sql("""
+    ... 'url' = f'jdbc:postgresql://{HOST}:{PORT}/db' ...
+""")
+
+# ✅ 外层三引号加 f，内层用单引号
+env.execute_sql(f"""
+    ... 'url' = 'jdbc:postgresql://{HOST}:{PORT}/db' ...
+""")
+```
+
+### 4.9 `NUMERIC` 精度要对齐
+
+Flink 的 `DECIMAL(12,2)` 写进 pg 的 `NUMERIC(12,2)` 没问题；
+但 Flink `DOUBLE` 写 pg `NUMERIC` 会有精度警告，**建议显式 CAST**：
+
+```sql
+CAST(ROUND(AVG(balance), 2) AS DECIMAL(12, 2))
+```
+
+---
+
+## 5. 典型业务场景
+
+### 5.1 实时大屏：Kafka 订单流 + pg 维表 + pg 结果表
+
+```
+Kafka(订单流) ──┐
+                ├─► Flink Lookup Join(pg 维表) ─► 窗口聚合 ─► pg 结果表 ─► DBeaver/BI 展示
+pg(用户/商品) ──┘
+```
+
+完整链路已在 **`examples/08_realtime_risk_control.py`** 验证过（Kafka 部分），
+把 sink 换成 JDBC 即可。
+
+### 5.2 离线报表预计算
+
+```
+pg(明细表, 百万行) ─► Flink 批模式 聚合 ─► pg(汇总表) ─► DBeaver 查报表
+```
+
+**优势**：比在 pg 里写复杂 SQL 快得多（Flink 可并行扫描 + 内存计算），且不占用 pg 的 CPU。
+
+### 5.3 异构同步：pg → MySQL / Kafka
+
+```
+pg ──CDC──► Flink ──► MySQL (JDBC Sink)
+                 └──► Kafka (Kafka Sink)
+```
+
+一套 CDC 源，多路分发。本项目 MySQL + Kafka 连接器都已就绪。
+
+### 5.4 实时风控（本项目示例 08 的延伸）
+
+```
+Kafka(交易流) ─► Flink CEP/规则引擎 ─► 告警写 pg ─► DBeaver 查看告警列表
+                                    └─► 告警推 Kafka
+```
+
+风控规则/阈值表放 pg，Flink 启动时加载为广播状态，实现**规则热更新**。
+
+---
+
+## 6. 快速验证清单
+
+跑完这套，说明 pg ↔ Flink 链路健康：
+
+```bash
+# 1. 确认容器都活着
+docker ps --format "table {{.Names}}\t{{.Status}}" | grep -E "pg-|pyflink-"
+
+# 2. 确认 pg 驱动在容器里可见
+docker exec pyflink-jobmanager ls -l /opt/flink/lib/postgresql-42.7.4.jar
+
+# 3. 确认能解析 host.docker.internal
+docker exec pyflink-jobmanager getent hosts host.docker.internal
+
+# 4. 确认端口通
+docker exec pyflink-jobmanager bash -c \
+  "(exec 3<>/dev/tcp/host.docker.internal/5432) 2>/dev/null && echo OK || echo FAIL"
+
+# 5. 建结果表
+docker exec -i pg-primary psql -U shop -d shop -c "
+CREATE TABLE IF NOT EXISTS flink_user_stats (
+    status SMALLINT PRIMARY KEY, user_cnt BIGINT,
+    avg_balance NUMERIC(12,2), updated_at TIMESTAMP);"
+
+# 6. 跑端到端测试
+docker exec pyflink-jobmanager bash -c \
+  "cd /opt/flink && python examples/09_postgres_integration.py --local"
+
+# 7. 在 pg 里确认数据落地
+docker exec -i pg-primary psql -U shop -d shop -c \
+  "SELECT * FROM flink_user_stats ORDER BY status;"
+
+# 8. 确认从库也同步了（流复制 + Flink 写入联动验证）
+docker exec -i pg-standby psql -U shop -d shop -c \
+  "SELECT * FROM flink_user_stats ORDER BY status;"
+```
+
+**本机实测最终状态**：步骤 1–8 全部通过 ✅
+
+---
+
+## 7. 依赖清单
+
+| 组件 | 版本 | 用途 | 获取方式 |
+|---|---|---|---|
+| `flink-connector-jdbc` | 3.2.0-1.19 | JDBC 读写核心 | Maven Central |
+| `postgresql` | 42.7.4 | pg 驱动 | Maven Central |
+| `flink-connector-postgres-cdc` | 3.0.1 | CDC（可选） | Maven Central |
+| `flink-sql-connector-kafka` | 3.4.0-1.20 | Kafka（已配） | Maven Central |
+| `mysql-connector-j` | 8.0.33 | MySQL（已配） | Maven Central |
+
+**Maven 坐标**：
+
+```
+org/apache/flink/flink-connector-jdbc/3.2.0-1.19/flink-connector-jdbc-3.2.0-1.19.jar
+org/postgresql/postgresql/42.7.4/postgresql-42.7.4.jar
+org/apache/flink/flink-connector-postgres-cdc/3.0.1/flink-connector-postgres-cdc-3.0.1.jar
+```
+
+---
+
+## 8. 相关文档
+
+- `examples/09_postgres_integration.py` —— 本文全部示例的可运行代码
+- `examples/06_connectors.py` —— JDBC(MySQL) / Kafka / 文件连接器基础用法
+- `examples/08_realtime_risk_control.py` —— Kafka 实时风控完整案例
+- `docs/docker-deployment-tutorial.md` —— PyFlink Docker 部署教程（连接器放置、踩坑）
+- `postgresql-course/docs/12-监控性能与连接池.md` —— PgBouncer 连接池配置
+- `postgresql-course/docs/15-DBeaver连接与可视化操作.md` —— 用 DBeaver 查看 Flink 写入的结果表

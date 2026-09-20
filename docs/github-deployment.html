@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>部署到 GitHub · 完整指南</title>
+<style>
+:root{
+  --bg:#0f1115;--bg2:#161922;--bg3:#1d212c;--bd:#2a2f3d;
+  --tx:#e4e7ee;--tx2:#9aa3b5;--tx3:#6b7385;
+  --acc:#7f77dd;--acc2:#9fe1cb;--warn:#ef9f27;--ok:#97c459;
+  --code-bg:#12151c;--side-w:260px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  font-size:15px;line-height:1.75;-webkit-font-smoothing:antialiased}
+#side{position:fixed;top:0;left:0;bottom:0;width:var(--side-w);background:var(--bg2);border-right:1px solid var(--bd);
+  overflow-y:auto;padding:24px 0 40px}
+#side h1{font-size:15px;font-weight:500;padding:0 20px 4px;color:var(--tx)}
+#side .sub{font-size:12px;color:var(--tx3);padding:0 20px 20px;border-bottom:1px solid var(--bd);margin-bottom:12px}
+#side a{display:block;padding:7px 20px;color:var(--tx2);text-decoration:none;font-size:13px;
+  border-left:2px solid transparent;transition:.15s}
+#side a:hover{color:var(--tx);background:var(--bg3)}
+#side a.lv2{padding-left:34px;font-size:12.5px;color:var(--tx3)}
+#side a.active{color:var(--acc2);border-left-color:var(--acc);background:rgba(127,119,221,.08)}
+#main{margin-left:var(--side-w);padding:48px 56px 120px;max-width:1000px}
+h1{font-size:28px;font-weight:500;margin:0 0 8px;letter-spacing:-.3px}
+h2{font-size:21px;font-weight:500;margin:56px 0 16px;padding-bottom:10px;border-bottom:1px solid var(--bd);scroll-margin-top:20px}
+h3{font-size:16.5px;font-weight:500;margin:32px 0 12px;color:var(--acc2);scroll-margin-top:20px}
+h4{font-size:14.5px;font-weight:500;margin:22px 0 10px;color:var(--tx)}
+p{margin:12px 0;color:#cdd3e0}
+blockquote{margin:16px 0;padding:12px 18px;background:var(--bg2);border-left:3px solid var(--acc);
+  border-radius:0 8px 8px 0;color:var(--tx2);font-size:14px}
+blockquote p{margin:4px 0;color:var(--tx2)}
+ul,ol{margin:12px 0 12px 24px}
+li{margin:6px 0;color:#cdd3e0}
+li>ul,li>ol{margin:6px 0 6px 20px}
+code{font-family:"SF Mono",Consolas,"Cascadia Code",Menlo,monospace;font-size:13px;
+  background:var(--bg3);padding:2px 6px;border-radius:4px;color:#e6b673}
+pre{background:var(--code-bg);border:1px solid var(--bd);border-radius:10px;padding:16px 18px;
+  overflow-x:auto;margin:16px 0;position:relative}
+pre code{background:none;padding:0;color:#c9d1d9;font-size:12.8px;line-height:1.65}
+.lang-tag{position:absolute;top:8px;right:12px;font-size:10.5px;color:var(--tx3);
+  text-transform:uppercase;letter-spacing:.6px;font-family:monospace}
+table{width:100%;border-collapse:collapse;margin:18px 0;font-size:13.5px;
+  border:1px solid var(--bd);border-radius:10px;overflow:hidden}
+th{background:var(--bg3);text-align:left;padding:10px 14px;font-weight:500;color:var(--tx);
+  border-bottom:1px solid var(--bd);font-size:13px}
+td{padding:9px 14px;border-bottom:1px solid rgba(42,47,61,.6);color:#c3cad8;vertical-align:top}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:rgba(29,33,44,.5)}
+hr{border:none;border-top:1px solid var(--bd);margin:40px 0}
+a{color:var(--acc2)}
+strong{font-weight:500;color:var(--tx)}
+.hero{background:linear-gradient(135deg,rgba(127,119,221,.14),rgba(29,158,117,.09));
+  border:1px solid var(--bd);border-radius:14px;padding:26px 28px;margin-bottom:32px}
+.hero .tag{display:inline-block;font-size:11.5px;color:var(--acc2);background:rgba(29,158,117,.14);
+  padding:3px 10px;border-radius:20px;margin-bottom:12px;letter-spacing:.3px}
+.hero h1{margin-bottom:10px}
+.hero p{color:var(--tx2);font-size:14px;margin:6px 0}
+.hero .meta{display:flex;flex-wrap:wrap;gap:20px;margin-top:16px;font-size:12.5px;color:var(--tx3)}
+.hero .meta b{color:var(--tx2);font-weight:500}
+.lead{margin-top:0}
+.kw{color:#ff7b72}.st{color:#a5d6ff}.cm{color:#8b949e;font-style:italic}
+.nm{color:#79c0ff}.fn{color:#d2a8ff}.dc{color:#e6b673}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:#333a4a;border-radius:5px}
+::-webkit-scrollbar-thumb:hover{background:#414a5e}
+@media(max-width:1100px){#side{display:none}#main{margin-left:0;padding:32px 24px 80px}}
+</style>
+</head>
+<body id="top">
+<nav id="side">
+  <h1>GitHub 部署指南</h1>
+  <div class="sub">敏感信息处理 · JAR 策略 · CI</div>
+  <a href="#top" style="font-weight:500;color:var(--tx)">GitHub 部署指南</a><a href="#h2-0" class="">目录</a><a href="#h2-1" class="">一、推之前必须想清楚的 3 件事</a><a href="#h3-2" class="lv2">1. 有没有硬编码的密码？ 🔴</a><a href="#h3-3" class="lv2">2. 大文件怎么办？ 🟡</a><a href="#h3-4" class="lv2">3. 别人 clone 下来能跑吗？ 🟡</a><a href="#h2-5" class="">二、仓库结构设计</a><a href="#h3-6" class="lv2">推荐的目录结构</a><a href="#h3-7" class="lv2">为什么这么分层</a><a href="#h2-8" class="">三、敏感信息处理（最重要）</a><a href="#h3-9" class="lv2">方案 A：环境变量 + `.env.example`（推荐）</a><a href="#h3-10" class="lv2">方案 B：`docker-compose.yml` 用变量占位</a><a href="#h3-11" class="lv2">⚠️ 已经推错了怎么办？</a><a href="#h2-12" class="">四、JAR 包管理策略</a><a href="#h3-13" class="lv2">三个选择</a><a href="#h3-14" class="lv2">推荐做法：下载脚本</a><a href="#h3-15" class="lv2">⚠️ 胖包 vs 瘦包的教训</a><a href="#h2-16" class="">五、一步一步推到 GitHub</a><a href="#h3-17" class="lv2">前置：确认 gh 已登录</a><a href="#h3-18" class="lv2">方式一：gh 一键创建并推送（最简单）</a><a href="#h3-19" class="lv2">方式二：先建仓库再关联（手动可控）</a><a href="#h3-20" class="lv2">推送前自检清单</a><a href="#h2-21" class="">六、验证别人能跑起来</a><a href="#h3-22" class="lv2">README 必须包含的要素</a><a href="#h2-23" class="">七、常见坑</a><a href="#h3-24" class="lv2">1. 推完发现漏了文件</a><a href="#h3-25" class="lv2">2. 想改仓库名 / 描述</a><a href="#h3-26" class="lv2">3. 行尾符问题（Windows → Linux）</a><a href="#h3-27" class="lv2">4. 中文文件名 / 路径乱码</a><a href="#h3-28" class="lv2">5. 忘了加 LICENSE</a><a href="#h2-29" class="">八、日常维护命令</a><a href="#h3-30" class="lv2">建议先做的两件事</a><a href="#h2-31" class="">附：本仓库的实际推送记录</a>
+</nav>
+<main id="main">
+<div class="hero">
+  <span class="tag">GitHub · Git · 自动化</span>
+  <h1>部署到 GitHub</h1>
+  <p class="lead">把本地工程推到 GitHub 的完整流程：密码与密钥处理、大文件策略、仓库结构设计、以及让别人 clone 下来就能跑。</p>
+  <div class="meta">
+    <span><b>8</b> 个可运行示例</span><span><b>12</b> 章完整讲解</span><span><b>零依赖</b> 即可试跑</span><span><b>Docker</b> 一键环境</span>
+  </div>
+</div>
+<h1>部署到 GitHub · 完整指南</h1><blockquote>把本地这套 PyFlink 教程推到 GitHub，让别人 clone 下来就能跑。 包含：仓库初始化、敏感信息处理、JAR 管理策略、自动化脚本、常见坑。</blockquote><hr><h2 id="h2-0">目录</h2><ul><li><a href="#一推之前必须想清楚的-3-件事">一、推之前必须想清楚的 3 件事</a></li><li><a href="#二仓库结构设计">二、仓库结构设计</a></li><li><a href="#三敏感信息处理最重要">三、敏感信息处理（最重要）</a></li><li><a href="#四jar-包管理策略">四、JAR 包管理策略</a></li><li><a href="#五一步一步推到-github">五、一步一步推到 GitHub</a></li><li><a href="#六验证别人能跑起来">六、验证别人能跑起来</a></li><li><a href="#七常见坑">七、常见坑</a></li><li><a href="#八日常维护命令">八、日常维护命令</a></li></ul><hr><h2 id="h2-1">一、推之前必须想清楚的 3 件事</h2><p>推到 GitHub 前，先回答这三个问题。<strong>第 1 个没处理好，等于把密码公开发布。</strong></p><h3 id="h3-2">1. 有没有硬编码的密码？ 🔴</h3><p>这套工程里散落着不少<strong>明文密码</strong>，直接推上去就是安全事故：</p><table>
+<thead><tr><th>位置</th><th>内容</th><th>风险</th></tr></thead>
+<tbody>
+<tr><td><code>docker/docker-compose.yml</code></td><td>MySQL <code>root123456</code>、pg <code>shop123</code></td><td>数据库口令泄露</td></tr>
+<tr><td><code>examples/*.py</code></td><td>连接串里的 <code>shop123</code> / <code>cdc123</code></td><td>同上</td></tr>
+<tr><td><code>scripts/*.sh</code></td><td>各种连接参数</td><td>同上</td></tr>
+</tbody></table><blockquote><strong>好消息</strong>：这些都是<strong>本地开发用的弱口令</strong>，而且是教程演示数据。 但即便这样，也不该直接推到公开仓库 —— 有人会拿它去撞你的其他服务。</blockquote><p><strong>处理方式见<a href="#三敏感信息处理最重要">第三章</a>。</strong></p><h3 id="h3-3">2. 大文件怎么办？ 🟡</h3><p><code>jars/</code> 目录 28MB，其中 CDC 胖包单个就 <strong>20MB</strong>。</p><p>GitHub 单文件限制 100MB（硬限制），仓库建议 &lt; 1GB（软限制）。</p><p>28MB 其实推得上去，但：</p><ul><li>每次改代码都会带上这些二进制，仓库迅速膨胀</li><li>别人 clone 要等很久</li><li>JAR 是<strong>可重新下载</strong>的产物，不适合版本控制</li></ul><p><strong>处理方式见<a href="#四jar-包管理策略">第四章</a>。</strong></p><h3 id="h3-4">3. 别人 clone 下来能跑吗？ 🟡</h3><p>你现在能跑，是因为本机装好了 pyflink、拉好了镜像、配好了 pg。</p><p>别人拿到代码后需要：</p><ul><li>一份「前置条件清单」（Python 版本、Docker、内存要求）</li><li>一条能自动检查环境的命令</li><li>明确知道哪些步骤会耗时很久（首次构建镜像 ~10 分钟）</li></ul><p><strong>处理方式见<a href="#二仓库结构设计">第二章</a> + <a href="#六验证别人能跑起来">第六章</a>。</strong></p><hr><h2 id="h2-5">二、仓库结构设计</h2><h3 id="h3-6">推荐的目录结构</h3><pre><span class="lang-tag">text</span><code>pyflink-tutorial/
+├── README.md                    # 门面：5 分钟能看懂这仓库干嘛的
+├── LICENSE                      # 建议加（MIT / Apache-2.0）
+├── .gitignore                   # ⚠️ 推之前必须写好
+├── .env.example                 # ⚠️ 配置模板（不含真实密码）
+│
+├── docs/                        # 教程文档
+│   ├── pyflink-tutorial.md      #   主教程（+ 同名 .html）
+│   ├── docker-deployment-tutorial.md
+│   ├── pygresql-integration.md
+│   ├── github-deployment.md     #   本文档
+│   └── *.html                   #   GitHub Pages 可直接托管
+│
+├── examples/                    # 示例代码（核心资产）
+│   ├── 01_hello_wordcount.py
+│   ├── 02_table_api.py
+│   ├── ...
+│   └── 10_postgres_cdc.py
+│
+├── docker/
+│   ├── docker-compose.yml
+│   └── pyflink-image/
+│       └── Dockerfile           #   自定义镜像（官方镜像无 Python）
+│
+├── scripts/                     # 自动化脚本
+│   ├── docker_up.sh             #   一键起集群
+│   ├── docker_run.sh            #   跑示例
+│   ├── fetch_jars.sh            #   ⭐ 补下载 JAR
+│   └── ...
+│
+├── jars/                        # ⚠️ 不进 Git（.gitignore 排除）
+└── jars-optional/               # ⚠️ 同上</code></pre><h3 id="h3-7">为什么这么分层</h3><ul><li><strong><code>examples/</code> 是核心资产</strong> —— 别人主要来看代码，放最外层一眼可见</li><li>**<code>docs/*.html</code> 可白嫖 GitHub Pages** —— 开启 Pages 后免费得到一个在线教程站</li><li><strong><code>jars/</code> 排除在外</strong> —— 用 <code>fetch_jars.sh</code> 补，见第四章</li></ul><hr><h2 id="h2-8">三、敏感信息处理（最重要）</h2><h3 id="h3-9">方案 A：环境变量 + <code>.env.example</code>（推荐）</h3><p><strong>第 1 步</strong>：创建 <code>.env.example</code>（这个<strong>要</strong>提交，作为模板）</p><pre><span class="lang-tag">bash</span><code><span class="cm"># .env.example —— 配置模板，复制成 .env 后填真实值</span>
+<span class="cm"># ⚠️ .env 已在 .gitignore 中排除，不会进 Git</span>
+
+<span class="cm"># ---- MySQL ----</span>
+MYSQL_ROOT_PASSWORD=change_me
+MYSQL_DATABASE=shop
+MYSQL_PORT=13306
+
+<span class="cm"># ---- PostgreSQL ----</span>
+PG_HOST=host.docker.internal
+PG_PORT=5432
+PG_DB=shop
+PG_USER=shop
+PG_PASSWORD=change_me
+
+<span class="cm"># ---- PostgreSQL CDC ----</span>
+CDC_USER=flink_cdc
+CDC_PASSWORD=change_me
+CDC_SLOT=flink_users_slot
+CDC_PUBLICATION=flink_cdc_pub
+
+<span class="cm"># ---- Kafka ----</span>
+KAFKA_BOOTSTRAP=kafka:9092</code></pre><p><strong>第 2 步</strong>：创建 <code>.env</code>（<strong>不要</strong>提交）</p><pre><span class="lang-tag">bash</span><code>cp .env.example .env
+<span class="cm"># 然后编辑 .env，把 change_me 换成真实值</span></code></pre><p><strong>第 3 步</strong>：<code>.gitignore</code> 里排除</p><pre><span class="lang-tag">gitignore</span><code>.env
+.env.local
+*.env
+!.env.example      # ← 注意这个感叹号，表示&quot;但这个要提交&quot;</code></pre><p><strong>第 4 步</strong>：代码里改读环境变量</p><pre><span class="lang-tag">python</span><code><span <span class="kw">class</span>="kw">import</span> os
+
+PG_PASSWORD = os.environ.get(<span class="st">&quot;PG_PASSWORD&quot;</span>)
+<span class="kw">if</span> <span class="kw">not</span> PG_PASSWORD:
+    <span class="kw">raise</span> RuntimeError(
+        <span class="st">&quot;未设置 PG_PASSWORD。请先 cp .env.example .env 并填入真实密码。&quot;</span>
+    )</code></pre><blockquote>💡 示例 10 已经大量使用 <code>os.environ.get()</code> 模式了， 只需要把剩下的硬编码值替换掉即可。</blockquote><h3 id="h3-10">方案 B：<code>docker-compose.yml</code> 用变量占位</h3><pre><span class="lang-tag">yaml</span><code><span class="nm">services</span>:
+  <span class="nm">mysql</span>:
+    <span class="nm">environment</span>:
+      <span class="nm">MYSQL_ROOT_PASSWORD</span>: ${MYSQL_ROOT_PASSWORD:?必须设置 MYSQL_ROOT_PASSWORD}
+      <span class="nm">MYSQL_DATABASE</span>: ${MYSQL_DATABASE:-shop}</code></pre><p><code>${VAR:?错误信息}</code> = 变量没设置就<strong>直接启动失败并提示</strong>，</p><p>比默默用默认值安全得多（避免&quot;以为改了其实没改&quot;）。</p><h3 id="h3-11">⚠️ 已经推错了怎么办？</h3><p>如果密码已经推到 GitHub，<strong>改密码比删 commit 有用</strong>：</p><ol><li><strong>立即轮换密码</strong> —— 这是唯一真正止损的动作</li><li>清理 Git 历史：</li></ol><pre><span class="lang-tag">bash</span><code><span class="cm"># 用 git-filter-repo（比 filter-branch 快很多）</span>
+<span class="kw">pip</span> install git-filter-repo
+git filter-repo --path .env --invert-paths
+
+<span class="cm"># 强制推送覆盖远端</span>
+git push --force --all</code></pre><ol><li>联系 GitHub Support 清理缓存（<code>--force</code> 后旧 commit 仍可能被访问）</li></ol><blockquote><strong>顺序很重要</strong>：先改密码，再清历史。 只清历史不改密码 = 密码照样有效，只是藏起来了。</blockquote><hr><h2 id="h2-12">四、JAR 包管理策略</h2><h3 id="h3-13">三个选择</h3><table>
+<thead><tr><th>方案</th><th>优点</th><th>缺点</th><th>建议</th></tr></thead>
+<tbody>
+<tr><td>直接提交 JAR</td><td>别人 clone 就能跑</td><td>仓库臃肿（28MB+），每次改动都带二进制</td><td>❌</td></tr>
+<tr><td>Git LFS</td><td>仓库轻量</td><td>别人必须装 LFS，否则 clone 的是指针文件</td><td>🟡</td></tr>
+<tr><td><strong>下载脚本</strong></td><td>仓库干净，来源可追溯</td><td>多一步 <code>fetch_jars.sh</code></td><td>✅ 推荐</td></tr>
+</tbody></table><h3 id="h3-14">推荐做法：下载脚本</h3><p><strong>第 1 步</strong>：<code>.gitignore</code> 排除</p><pre><span class="lang-tag">gitignore</span><code>jars/*.jar
+jars-optional/*.jar</code></pre><p><strong>第 2 步</strong>：写 <code>scripts/fetch_jars.sh</code>（本仓库已提供，见该文件）</p><p>核心逻辑：</p><pre><span class="lang-tag">bash</span><code>MAVEN=<span class="st">&quot;https://repo1.maven.org/maven2&quot;</span>
+
+fetch() {
+    local rel=<span class="st">&quot;$1&quot;</span> dest=<span class="st">&quot;$2&quot;</span>
+    [ -f <span class="st">&quot;$dest&quot;</span> ] &amp;&amp; { <span class="kw">echo</span> <span class="st">&quot;  ✓ 已存在&quot;</span>; return 0; }
+    curl -fsSL --retry 3 <span class="st">&quot;$MAVEN/$rel&quot;</span> -o <span class="st">&quot;$dest&quot;</span>
+}</code></pre><p><strong>第 3 步</strong>：README 里写清楚</p><pre><span class="lang-tag">bash</span><code><span class="cm"># 克隆后第一步</span>
+<span class="kw">bash</span> scripts/fetch_jars.sh</code></pre><p><strong>第 4 步</strong>（可选）：Docker 构建时自动拉</p><p>如果走 Docker 路线，其实<strong>不需要本地 JAR</strong> ——</p><p><code>Dockerfile</code> 里已经用 <code>fetch</code> 从 Maven 下载了：</p><pre><span class="lang-tag">dockerfile</span><code>RUN fetch &quot;$MAVEN_BASE/org/apache/flink/flink-sql-connector-postgres-cdc/3.6.0-1.20/...&quot; \
+          &quot;flink-sql-connector-postgres-cdc-3.6.0-1.20.jar&quot;</code></pre><p>本地 <code>jars/</code> 只有走「本地安装」路线时才需要。</p><h3 id="h3-15">⚠️ 胖包 vs 瘦包的教训</h3><p>下 JAR 时容易踩的坑，<strong>已在 <code>fetch_jars.sh</code> 注释里标明</strong>：</p><pre><span class="lang-tag">text</span><code>flink-connector-postgres-cdc-3.6.0-1.20.jar      174K  ← 瘦包 ❌ 会报 NoClassDefFoundError
+flink-sql-connector-postgres-cdc-3.6.0-1.20.jar   20M  ← 胖包 ✅ SQL 场景用这个</code></pre><p>规律：<strong>SQL 连接器一律用 <code>flink-sql-</code> 前缀的胖包</strong>。</p><hr><h2 id="h2-16">五、一步一步推到 GitHub</h2><h3 id="h3-17">前置：确认 gh 已登录</h3><pre><span class="lang-tag">bash</span><code>gh auth status
+<span class="cm"># ✓ Logged in to github.com account &lt;你的账号&gt;</span></code></pre><p>没登录的话：</p><pre><span class="lang-tag">bash</span><code>gh auth login
+<span class="cm"># 选 GitHub.com → HTTPS → Login with a web browser</span></code></pre><h3 id="h3-18">方式一：gh 一键创建并推送（最简单）</h3><pre><span class="lang-tag">bash</span><code><span class="kw">cd</span> /path/to/pyflink-tutorial
+
+<span class="cm"># 初始化</span>
+git init
+git add .
+git commit -m <span class="st">&quot;feat: PyFlink 教程初始版本（10 个示例 + Docker 集群 + 中文文档）&quot;</span>
+
+<span class="cm"># 创建远程仓库并推送（一条命令搞定）</span>
+gh repo create pyflink-tutorial \
+    --public \
+    --source=. \
+    --description <span class="st">&quot;PyFlink 从入门到生产：10 个可运行示例 + Docker 集群 + 中文教程&quot;</span> \
+    --push</code></pre><p><code>--public</code> 改 <code>--private</code> 就是私有仓库。</p><h3 id="h3-19">方式二：先建仓库再关联（手动可控）</h3><pre><span class="lang-tag">bash</span><code><span class="cm"># 1. 建空仓库（不初始化 README，避免冲突）</span>
+gh repo create pyflink-tutorial --public --description <span class="st">&quot;...&quot;</span>
+
+<span class="cm"># 2. 本地初始化</span>
+git init
+git branch -M main
+git add .
+git commit -m <span class="st">&quot;feat: 初始版本&quot;</span>
+
+<span class="cm"># 3. 关联并推送</span>
+git remote add origin https://github.com/&lt;你的用户名&gt;/pyflink-tutorial.git
+git push -u origin main</code></pre><h3 id="h3-20">推送前自检清单</h3><pre><span class="lang-tag">bash</span><code><span class="cm"># ① 确认敏感文件没被跟踪</span>
+git <span class="kw">ls</span>-files | grep -E <span class="st">&quot;\.env$|\.env\.|password|secret&quot;</span>
+<span class="cm"># 应该只看到 .env.example，看不到 .env</span>
+
+<span class="cm"># ② 确认大文件没被跟踪</span>
+git <span class="kw">ls</span>-files | grep <span class="st">&quot;\.jar$&quot;</span>
+<span class="cm"># 应该输出为空</span>
+
+<span class="cm"># ③ 看看将要提交的文件总览</span>
+git status --short
+git diff --cached --stat | tail -5</code></pre><blockquote>⚠️ <strong>务必先 <code>git ls-files</code> 检查，再 push</strong>。 推错了虽然能清历史，但浪费时间和精力。</blockquote><hr><h2 id="h2-21">六、验证别人能跑起来</h2><p>自己觉得&quot;应该能跑&quot;不算数。<strong>换个目录真跑一遍</strong>：</p><pre><span class="lang-tag">bash</span><code><span class="cm"># 模拟新人：clone 到全新目录</span>
+<span class="kw">cd</span> /tmp
+git clone https://github.com/&lt;你的用户名&gt;/pyflink-tutorial.git test-clone
+<span class="kw">cd</span> test-clone
+
+<span class="cm"># 按 README 的步骤走</span>
+<span class="kw">bash</span> scripts/fetch_jars.sh
+<span class="kw">bash</span> scripts/setup.sh --check      <span class="cm"># 环境检查</span>
+<span class="kw">bash</span> scripts/docker_up.sh          <span class="cm"># 起集群</span>
+<span class="kw">bash</span> scripts/docker_run.sh 01      <span class="cm"># 跑第一个示例</span></code></pre><p><strong>重点验证</strong>：</p><ul><li>[ ] <code>fetch_jars.sh</code> 能把 JAR 都拉下来</li><li>[ ] 缺环境变量时脚本给出<strong>清晰报错</strong>，而不是莫名崩溃</li><li>[ ] README 里的命令<strong>逐条可执行</strong>（不能有&quot;你应该知道要改这里&quot;）</li><li>[ ] 首次构建的耗时提示到位（别人不会以为卡死了）</li></ul><h3 id="h3-22">README 必须包含的要素</h3><pre><span class="lang-tag">markdown</span><code>## 前置要求
+- Docker Desktop（≥ 4.0）
+- 内存 ≥ 8GB（Flink 集群 + MySQL + pg 同时跑）
+- 磁盘 ≥ 5GB（镜像 + 依赖）
+- 首次构建需 ~10 分钟（装 Python 3.11 + PyFlink 约 400MB 依赖）
+
+## 快速开始
+（3 条命令以内，从 clone 到看到结果）
+
+## 常见问题
+（把你自己踩过的坑写进去）</code></pre><hr><h2 id="h2-23">七、常见坑</h2><h3 id="h3-24">1. 推完发现漏了文件</h3><pre><span class="lang-tag">bash</span><code><span class="cm"># .env 已经被跟踪了，要取消跟踪（但保留本地文件）</span>
+git <span class="kw">rm</span> --cached .env
+<span class="kw">echo</span> <span class="st">&quot;.env&quot;</span> &gt;&gt; .gitignore
+git commit -m <span class="st">&quot;chore: 停止跟踪 .env&quot;</span>
+git push</code></pre><blockquote><code>git rm --cached</code> <strong>只删索引不删本地文件</strong>， 别用 <code>git rm</code>（那会把本地文件也删了）。</blockquote><h3 id="h3-25">2. 想改仓库名 / 描述</h3><pre><span class="lang-tag">bash</span><code>gh repo edit --description <span class="st">&quot;新描述&quot;</span>
+gh repo rename 新名字</code></pre><h3 id="h3-26">3. 行尾符问题（Windows → Linux）</h3><p>Windows 上 <code>core.autocrlf</code> 可能是 <code>true</code>，推上去的 <code>.sh</code> 在 Linux 上会带 <code>\r</code> 导致</p><p><code>bash: $&#x27;\r&#x27;: command not found</code>。</p><pre><span class="lang-tag">bash</span><code><span class="cm"># 推荐：仓库里统一用 LF</span>
+git config --global core.autocrlf input
+
+<span class="cm"># 并在 .gitattributes 里明确</span>
+cat &gt;&gt; .gitattributes &lt;&lt;&<span class="cm">#x27;EOF&#x27;</span>
+* text=auto eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
+*.jar binary
+EOF</code></pre><h3 id="h3-27">4. 中文文件名 / 路径乱码</h3><pre><span class="lang-tag">bash</span><code>git config --global core.quotepath false</code></pre><p>这样 <code>git status</code> 里中文文件名会正常显示，而不是 <code>\346\226\207...</code>。</p><h3 id="h3-28">5. 忘了加 LICENSE</h3><p>公开仓库没 License，别人<strong>法律上不能使用</strong>你的代码。</p><pre><span class="lang-tag">bash</span><code>gh api -X PUT /repos/:owner/:repo/license   <span class="cm"># 不直观，建议手动加</span>
+
+<span class="cm"># 或者直接从 GitHub 网页加：Add file → Create new file → 输入  0 </span>
+<span class="cm"># 会出现  1  按钮</span></code></pre><p>推荐 <strong>MIT</strong>（最宽松）或 <strong>Apache-2.0</strong>（含专利授权，适合企业）。</p><hr><h2 id="h2-29">八、日常维护命令</h2><pre><span class="lang-tag">bash</span><code><span class="cm"># 查看状态</span>
+git status
+git log --oneline -10
+
+<span class="cm"># 提交</span>
+git add -A
+git commit -m <span class="st">&quot;docs: 补充 CDC 章节&quot;</span>
+git push
+
+<span class="cm"># 看远程仓库</span>
+gh repo view --web
+
+<span class="cm"># 建 Issue / PR</span>
+gh issue create --title <span class="st">&quot;示例 10 在 pg15 上报表不存在&quot;</span> --body <span class="st">&quot;...&quot;</span>
+gh pr create --fill
+
+<span class="cm"># 打标签（发 release）</span>
+git tag -a v1.0.0 -m <span class="st">&quot;首个稳定版：10 个示例全部验证通过&quot;</span>
+git push --tags
+gh release create v1.0.0 --generate-notes</code></pre><h3 id="h3-30">建议先做的两件事</h3><ol><li><strong>开启 GitHub Pages 托管 docs/</strong></li></ol><pre><span class="lang-tag">text</span><code>   Settings → Pages → Source: Deploy from a branch
+   Branch: main  /  Folder: /docs</code></pre><p>   之后 <code>https://&lt;用户名&gt;.github.io/pyflink-tutorial/pyflink-tutorial.html</code></p><p>   就是一个在线教程站，零成本。</p><ol><li><strong>加 CI 做基础检查</strong>（<code>.github/workflows/check.yml</code>）</li></ol><pre><span class="lang-tag">yaml</span><code>   <span class="nm">name</span>: Check
+   <span class="nm">on</span>: [push, pull_request]
+   <span class="nm">jobs</span>:
+     <span class="nm">lint</span>:
+       <span class="nm">runs-on</span>: ubuntu-latest
+       <span class="nm">steps</span>:
+         - uses: actions/checkout@v4
+         - uses: actions/setup-python@v5
+           <span class="nm">with</span>:
+             <span class="nm">python-version</span>: &<span class="cm">#x27;3.11&#x27;</span>
+         - run: pip install flake8
+         - run: flake8 examples/ --max-line-length=120 --select=E9,F63,F7,F82</code></pre><p>   只查&quot;语法错误&quot;级别的（<code>E9,F63...</code>），不搞风格洁癖 ——</p><p>   否则每次提交都被格式问题卡住，很烦。</p><hr><h2 id="h2-31">附：本仓库的实际推送记录</h2><pre><span class="lang-tag">bash</span><code><span class="cm"># 2026-09-20 首次推送</span>
+<span class="kw">cd</span> /c/Users/wzm/WorkBuddy/2026-09-20-09-28-01/pyflink-tutorial
+
+git init
+git branch -M main
+git add .
+git commit -m <span class="st">&quot;feat: PyFlink 教程（10 示例 + Docker 集群 + pg CDC 集成）&quot;</span>
+
+gh repo create pyflink-tutorial --public --source=. --push \
+    --description <span class="st">&quot;PyFlink 从入门到生产：可运行的示例 + Docker 集群 + 中文教程&quot;</span></code></pre><blockquote>⚠️ <strong>推送前务必确认</strong>： - <code>jars/*.jar</code> 未被跟踪（28MB，且可由 <code>fetch_jars.sh</code> 重建） - 无 <code>.env</code> / 明文密码 - <code>.sh</code> 文件是 LF 行尾</blockquote>
+</main>
+<script>
+const links=[...document.querySelectorAll('#side a')];
+const targets=links.map(a=>document.querySelector(a.getAttribute('href'))).filter(Boolean);
+function onScroll(){
+  let cur=0;
+  targets.forEach((t,i)=>{ if(t.getBoundingClientRect().top<120) cur=i; });
+  links.forEach((a,i)=>a.classList.toggle('active',i===cur));
+}
+document.addEventListener('scroll',onScroll,{passive:true});
+onScroll();
+</script>
+</body>
+</html>

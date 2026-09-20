@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PyFlink × PostgreSQL 联动操作手册</title>
+<style>
+:root{
+  --bg:#0f1115;--bg2:#161922;--bg3:#1d212c;--bd:#2a2f3d;
+  --tx:#e4e7ee;--tx2:#9aa3b5;--tx3:#6b7385;
+  --acc:#7f77dd;--acc2:#9fe1cb;--warn:#ef9f27;--ok:#97c459;
+  --code-bg:#12151c;--side-w:260px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  font-size:15px;line-height:1.75;-webkit-font-smoothing:antialiased}
+#side{position:fixed;top:0;left:0;bottom:0;width:var(--side-w);background:var(--bg2);border-right:1px solid var(--bd);
+  overflow-y:auto;padding:24px 0 40px}
+#side h1{font-size:15px;font-weight:500;padding:0 20px 4px;color:var(--tx)}
+#side .sub{font-size:12px;color:var(--tx3);padding:0 20px 20px;border-bottom:1px solid var(--bd);margin-bottom:12px}
+#side a{display:block;padding:7px 20px;color:var(--tx2);text-decoration:none;font-size:13px;
+  border-left:2px solid transparent;transition:.15s}
+#side a:hover{color:var(--tx);background:var(--bg3)}
+#side a.lv2{padding-left:34px;font-size:12.5px;color:var(--tx3)}
+#side a.active{color:var(--acc2);border-left-color:var(--acc);background:rgba(127,119,221,.08)}
+#main{margin-left:var(--side-w);padding:48px 56px 120px;max-width:1000px}
+h1{font-size:28px;font-weight:500;margin:0 0 8px;letter-spacing:-.3px}
+h2{font-size:21px;font-weight:500;margin:56px 0 16px;padding-bottom:10px;border-bottom:1px solid var(--bd);scroll-margin-top:20px}
+h3{font-size:16.5px;font-weight:500;margin:32px 0 12px;color:var(--acc2);scroll-margin-top:20px}
+h4{font-size:14.5px;font-weight:500;margin:22px 0 10px;color:var(--tx)}
+p{margin:12px 0;color:#cdd3e0}
+blockquote{margin:16px 0;padding:12px 18px;background:var(--bg2);border-left:3px solid var(--acc);
+  border-radius:0 8px 8px 0;color:var(--tx2);font-size:14px}
+blockquote p{margin:4px 0;color:var(--tx2)}
+ul,ol{margin:12px 0 12px 24px}
+li{margin:6px 0;color:#cdd3e0}
+li>ul,li>ol{margin:6px 0 6px 20px}
+code{font-family:"SF Mono",Consolas,"Cascadia Code",Menlo,monospace;font-size:13px;
+  background:var(--bg3);padding:2px 6px;border-radius:4px;color:#e6b673}
+pre{background:var(--code-bg);border:1px solid var(--bd);border-radius:10px;padding:16px 18px;
+  overflow-x:auto;margin:16px 0;position:relative}
+pre code{background:none;padding:0;color:#c9d1d9;font-size:12.8px;line-height:1.65}
+.lang-tag{position:absolute;top:8px;right:12px;font-size:10.5px;color:var(--tx3);
+  text-transform:uppercase;letter-spacing:.6px;font-family:monospace}
+table{width:100%;border-collapse:collapse;margin:18px 0;font-size:13.5px;
+  border:1px solid var(--bd);border-radius:10px;overflow:hidden}
+th{background:var(--bg3);text-align:left;padding:10px 14px;font-weight:500;color:var(--tx);
+  border-bottom:1px solid var(--bd);font-size:13px}
+td{padding:9px 14px;border-bottom:1px solid rgba(42,47,61,.6);color:#c3cad8;vertical-align:top}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:rgba(29,33,44,.5)}
+hr{border:none;border-top:1px solid var(--bd);margin:40px 0}
+a{color:var(--acc2)}
+strong{font-weight:500;color:var(--tx)}
+.hero{background:linear-gradient(135deg,rgba(127,119,221,.14),rgba(29,158,117,.09));
+  border:1px solid var(--bd);border-radius:14px;padding:26px 28px;margin-bottom:32px}
+.hero .tag{display:inline-block;font-size:11.5px;color:var(--acc2);background:rgba(29,158,117,.14);
+  padding:3px 10px;border-radius:20px;margin-bottom:12px;letter-spacing:.3px}
+.hero h1{margin-bottom:10px}
+.hero p{color:var(--tx2);font-size:14px;margin:6px 0}
+.hero .meta{display:flex;flex-wrap:wrap;gap:20px;margin-top:16px;font-size:12.5px;color:var(--tx3)}
+.hero .meta b{color:var(--tx2);font-weight:500}
+.lead{margin-top:0}
+.kw{color:#ff7b72}.st{color:#a5d6ff}.cm{color:#8b949e;font-style:italic}
+.nm{color:#79c0ff}.fn{color:#d2a8ff}.dc{color:#e6b673}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:#333a4a;border-radius:5px}
+::-webkit-scrollbar-thumb:hover{background:#414a5e}
+@media(max-width:1100px){#side{display:none}#main{margin-left:0;padding:32px 24px 80px}}
+</style>
+</head>
+<body id="top">
+<nav id="side">
+  <h1>PyFlink × PostgreSQL</h1>
+  <div class="sub">JDBC 连接器双向读写</div>
+  <a href="#top" style="font-weight:500;color:var(--tx)">PyFlink × PostgreSQL</a><a href="#h2-0" class="">0. 先看结论</a><a href="#h2-1" class="">1. 环境准备（本机实测路径）</a><a href="#h3-2" class="lv2">1.1 网络拓扑（关键，务必先搞懂）</a><a href="#h3-3" class="lv2">1.2 装 PostgreSQL JDBC 驱动</a><a href="#h3-4" class="lv2">1.3 环境变量（已在 compose 注入）</a><a href="#h2-5" class="">2. 建表：JDBC Sink 不会自动建表</a><a href="#h2-6" class="">3. 四种核心操作</a><a href="#h3-7" class="lv2">3.1 pg → Flink：JDBC Source 读数据</a><a href="#h3-8" class="lv2">3.2 Flink → pg：JDBC Sink 写数据</a><a href="#h3-9" class="lv2">3.3 pg 当维表：Lookup Join（最实用的场景）</a><a href="#h3-10" class="lv2">3.4 汇总：一段完整的端到端脚本</a><a href="#h3-11" class="lv2">3.5 CDC：真正实时的 pg 变更捕获</a><a href="#h2-12" class="">4. 踩坑清单（实测，含血泪）</a><a href="#h3-13" class="lv2">4.1 【最大的坑】流模式不能对普通字段 ORDER BY</a><a href="#h3-14" class="lv2">4.2 两个 compose 项目的网络是隔离的</a><a href="#h3-15" class="lv2">4.3 JDBC Sink 不建表</a><a href="#h3-16" class="lv2">4.4 忘了加 `extra_hosts` 时 Linux 上解析失败</a><a href="#h3-17" class="lv2">4.5 分区表 INSERT 必须带分区键</a><a href="#h3-18" class="lv2">4.6 从库是只读的</a><a href="#h3-19" class="lv2">4.7 连接池/并行度打爆 pg</a><a href="#h3-20" class="lv2">4.8 参数化时别用 f-string 嵌 f-string</a><a href="#h3-21" class="lv2">4.9 `NUMERIC` 精度要对齐</a><a href="#h2-22" class="">5. 典型业务场景</a><a href="#h3-23" class="lv2">5.1 实时大屏：Kafka 订单流 + pg 维表 + pg 结果表</a><a href="#h3-24" class="lv2">5.2 离线报表预计算</a><a href="#h3-25" class="lv2">5.3 异构同步：pg → MySQL / Kafka</a><a href="#h3-26" class="lv2">5.4 实时风控（本项目示例 08 的延伸）</a><a href="#h2-27" class="">6. 快速验证清单</a><a href="#h2-28" class="">7. 依赖清单</a><a href="#h2-29" class="">8. 相关文档</a>
+</nav>
+<main id="main">
+<div class="hero">
+  <span class="tag">Flink 1.20 · PostgreSQL 16 · 全实测</span>
+  <h1>PyFlink × PostgreSQL</h1>
+  <p class="lead">六类交互能力全解：JDBC 读写、维表关联、CDC 变更捕获、分区并行扫描、两阶段提交，含 9 条实测踩坑与完整验证清单。</p>
+  <div class="meta">
+    <span><b>8</b> 个可运行示例</span><span><b>12</b> 章完整讲解</span><span><b>零依赖</b> 即可试跑</span><span><b>Docker</b> 一键环境</span>
+  </div>
+</div>
+<h1>PyFlink × PostgreSQL 联动操作手册</h1><blockquote>版本：2026-09-20 ｜ 环境：Flink 1.20.5 + PostgreSQL 16.15 ｜ <strong>全部实测跑通</strong></blockquote><hr><h2 id="h2-0">0. 先看结论</h2><p><strong>Flink 官方没有单独的「PostgreSQL 连接器」</strong>，因为用 <strong>通用 JDBC 连接器 + PostgreSQL 驱动</strong> 就够了。</p><p>所以 pg 能做的事，本质上就是 JDBC 连接器能做的事 —— 而它能力相当完整：</p><table>
+<thead><tr><th>方向</th><th>能力</th><th>连接器</th><th>适用场景</th></tr></thead>
+<tbody>
+<tr><td><strong>pg → Flink</strong></td><td>批量扫描全表 / 增量按时间戳拉取</td><td><code>jdbc</code> (Source)</td><td>数据同步、离线分析、初始化加载</td></tr>
+<tr><td><strong>Flink → pg</strong></td><td>INSERT / UPSERT / DELETE 写入</td><td><code>jdbc</code> (Sink)</td><td>结果落库、报表预计算、指标回写</td></tr>
+<tr><td><strong>pg → Flink</strong></td><td>Lookup Join（维表实时关联）</td><td><code>jdbc</code> (Lookup Source)</td><td>订单流关联用户/商品维度</td></tr>
+<tr><td><strong>pg → Flink</strong></td><td>CDC 变更捕获（binlog 级）</td><td><code>postgres-cdc</code></td><td>实时数仓、双写替代、异构同步</td></tr>
+<tr><td><strong>pg → Flink</strong></td><td>读分区表并行扫描</td><td><code>jdbc</code> + 分区参数</td><td>大表并行读取</td></tr>
+<tr><td><strong>Flink → pg</strong></td><td>两阶段提交（EXACTLY_ONCE）</td><td><code>jdbc</code> + checkpoint</td><td>金融级不丢不重</td></tr>
+</tbody></table><hr><h2 id="h2-1">1. 环境准备（本机实测路径）</h2><h3 id="h3-2">1.1 网络拓扑（关键，务必先搞懂）</h3><p>本机的 Flink 和 PostgreSQL 是<strong>两个独立的 compose 项目</strong>：</p><pre><span class="lang-tag">text</span><code>pyflink-tutorial (网络: pyflink-tutorial_flink-net)
+  ├── pyflink-jobmanager       172.19.0.4
+  └── pyflink-taskmanager
+
+pg-course (网络: docker_pgnet)   ← 完全隔离！
+  ├── pg-primary   宿主映射 5432
+  └── pg-standby   宿主映射 5433</code></pre><p><strong>核心结论：Flink 容器里写 <code>pg-primary</code> 是解析不到的</strong>（实测 <code>getent hosts pg-primary</code> → <code>NO_RESOLVE</code>）。</p><p>两条可行路线：</p><table>
+<thead><tr><th>路线</th><th>容器内地址</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><strong>A. 走宿主机回环</strong>（推荐，零改动）</td><td><code>host.docker.internal:5432</code></td><td>容器 → 宿主机网卡 → 端口映射 → pg 容器。&lt;br&gt;✅ 实测连通</td></tr>
+<tr><td><strong>B. 共享网络</strong></td><td><code>pg-primary:5432</code></td><td>需把 pg 容器加入 flink 网络，或两个 compose 声明同一个 external network</td></tr>
+</tbody></table><p>本文全部用 <strong>路线 A</strong>。</p><h3 id="h3-3">1.2 装 PostgreSQL JDBC 驱动</h3><p>驱动不在 Flink 自带包里，<strong>必须自己加</strong>：</p><pre><span class="lang-tag">bash</span><code><span class="kw">cd</span> C:/Users/wzm/WorkBuddy/2026-09-20-09-28-01/pyflink-tutorial
+curl -fsSL -o jars/postgresql-42.7.4.jar \
+  https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.4/postgresql-42.7.4.jar</code></pre><p>放好后由 entrypoint 自动软链到 <code>lib/</code> 顶层（本项目 Dockerfile 已配好）。</p><p>验证：</p><pre><span class="lang-tag">bash</span><code><span class="kw">docker</span> exec pyflink-jobmanager <span class="kw">ls</span> -l /opt/flink/lib/postgresql-42.7.4.jar
+<span class="cm"># 期望：软链指向 /opt/flink/lib/connectors/postgresql-42.7.4.jar</span></code></pre><h3 id="h3-4">1.3 环境变量（已在 compose 注入）</h3><pre><span class="lang-tag">yaml</span><code><span class="nm">PG_HOST</span>: host.docker.internal
+<span class="nm">PG_PORT</span>: <span class="st">&quot;5432&quot;</span>
+<span class="nm">PG_DB</span>: shop
+<span class="nm">PG_USER</span>: shop
+<span class="nm">PG_PASSWORD</span>: shop123</code></pre><p>这样示例代码里读环境变量即可，<strong>容器内和宿主机跑同一份代码</strong>：</p><pre><span class="lang-tag">python</span><code>PG_HOST = os.environ.get(<span class="st">&quot;PG_HOST&quot;</span>, <span class="st">&quot;localhost&quot;</span>)   <span class="cm"># 宿主机默认 localhost</span>
+PG_PORT = os.environ.get(<span class="st">&quot;PG_PORT&quot;</span>, <span class="st">&quot;5432&quot;</span>)</code></pre><blockquote>⚠️ <code>host.docker.internal</code> 在 Linux 容器上需要 <code>extra_hosts: [&quot;host.docker.internal:host-gateway&quot;]</code>， 本项目 compose 已加，Windows/Mac 的 Docker Desktop 本身也内置。</blockquote><hr><h2 id="h2-5">2. 建表：JDBC Sink 不会自动建表</h2><p><strong>这是最容易踩的坑</strong>：Flink 的 JDBC connector <strong>只写数据，不建表</strong>。</p><p>目标表必须预先存在，否则报 <code>relation &quot;xxx&quot; does not exist</code>。</p><pre><span class="lang-tag">sql</span><code><span class="cm">-- 先在 pg 里建好</span>
+<span class="kw">CREATE</span> <span class="kw">TABLE</span> IF <span class="kw">NOT</span> <span class="kw">EXISTS</span> flink_user_stats (
+    status      SMALLINT <span class="kw">PRIMARY</span> <span class="kw">KEY</span>,
+    user_cnt    BIGINT,
+    avg_balance NUMERIC(12,2),
+    updated_at  TIMESTAMP
+);</code></pre><blockquote>💡 生产建议：用 Flyway / Liquibase 或 SQL 脚本统一管 schema，别让 Flink 作业负责建表。</blockquote><p><strong>字段类型映射（pg ↔ Flink）</strong>：</p><table>
+<thead><tr><th>PostgreSQL</th><th>Flink SQL</th></tr></thead>
+<tbody>
+<tr><td><code>SMALLINT</code> / <code>INT</code> / <code>BIGINT</code></td><td>同左</td></tr>
+<tr><td><code>NUMERIC(p,s)</code> / <code>DECIMAL</code></td><td><code>DECIMAL(p,s)</code></td></tr>
+<tr><td><code>VARCHAR(n)</code> / <code>TEXT</code></td><td><code>VARCHAR(n)</code> / <code>STRING</code></td></tr>
+<tr><td><code>TIMESTAMP</code></td><td><code>TIMESTAMP(3)</code></td></tr>
+<tr><td><code>DATE</code></td><td><code>DATE</code></td></tr>
+<tr><td><code>JSONB</code></td><td><code>STRING</code>（需自定义序列化）或 <code>RAW</code></td></tr>
+<tr><td><code>BOOLEAN</code></td><td><code>BOOLEAN</code></td></tr>
+</tbody></table><hr><h2 id="h2-6">3. 四种核心操作</h2><h3 id="h3-7">3.1 pg → Flink：JDBC Source 读数据</h3><pre><span class="lang-tag">python</span><code>env.execute_sql(<span class="st">&quot;&quot;&quot;
+    CREATE TABLE pg_users (
+        id         BIGINT,
+        username   VARCHAR(64),
+        email      VARCHAR(128),
+        status     SMALLINT,
+        level      SMALLINT,
+        balance    DECIMAL(12, 2),
+        created_at TIMESTAMP(3),
+        PRIMARY KEY (id) NOT ENFORCED
+    ) WITH (
+        &#x27;connector&#x27; = &#x27;jdbc&#x27;,
+        &#x27;url&#x27;       = &#x27;jdbc:postgresql://host.docker.internal:5432/shop&#x27;,
+        &#x27;username&#x27;  = &#x27;shop&#x27;,
+        &#x27;password&#x27;  = &#x27;shop123&#x27;,
+        &#x27;driver&#x27;    = &#x27;org.postgresql.Driver&#x27;,
+        &#x27;table-name&#x27; = &#x27;users&#x27;
+    )
+&quot;&quot;&quot;</span>)</code></pre><p><strong>扫描并行度</strong>（大表加速）：</p><pre><span class="lang-tag">sql</span><code>&#x27;scan.<span class="kw">PARTITION</span>.column&#x27; = &#x27;id&#x27;,
+&#x27;scan.<span class="kw">PARTITION</span>.num&#x27;    = &#x27;8&#x27;,        <span class="cm">-- 切成 8 份并行读</span>
+&#x27;scan.<span class="kw">PARTITION</span>.lower-bound&#x27; = &#x27;0&#x27;,
+&#x27;scan.<span class="kw">PARTITION</span>.upper-bound&#x27; = &#x27;1000000&#x27;,
+&#x27;scan.fetch-size&#x27;       = &#x27;1000&#x27;      <span class="cm">-- 每次拉取行数，防内存爆</span></code></pre><p><strong>增量拉取</strong>（按时间戳，适合定时同步）：</p><pre><span class="lang-tag">sql</span><code>&#x27;scan.auto-commit.enabled&#x27; = &#x27;true&#x27;,
+<span class="cm">-- 配合 WHERE created_at &gt; ? 由上游调度传入</span></code></pre><blockquote>⚠️ <strong>JDBC Source 是「有界」的</strong>（扫完就结束），不是真正的流。要真流必须用 CDC（见 3.5）。</blockquote><p><strong>实测结果</strong>（本机 shop 库 users 表 10000 行）：</p><pre><span class="lang-tag">text</span><code>  status |         人数 |           平均余额
+----------------------------------------
+       1 |       9687 |         992.82
+       2 |        163 |        1034.15
+       3 |        150 |         953.74
+----------------------------------------
+      合计 |      10000 |</code></pre><h3 id="h3-8">3.2 Flink → pg：JDBC Sink 写数据</h3><pre><span class="lang-tag">python</span><code>env.execute_sql(<span class="st">&quot;&quot;&quot;
+    CREATE TABLE pg_user_stats (
+        status      SMALLINT,
+        user_cnt    BIGINT,
+        avg_balance DECIMAL(12, 2),
+        updated_at  TIMESTAMP(3),
+        PRIMARY KEY (status) NOT ENFORCED    -- ← 有主键 = UPSERT 模式
+    ) WITH (
+        &#x27;connector&#x27; = &#x27;jdbc&#x27;,
+        &#x27;url&#x27;       = &#x27;jdbc:postgresql://host.docker.internal:5432/shop&#x27;,
+        &#x27;username&#x27;  = &#x27;shop&#x27;,
+        &#x27;password&#x27;  = &#x27;shop123&#x27;,
+        &#x27;driver&#x27;    = &#x27;org.postgresql.Driver&#x27;,
+        &#x27;table-name&#x27; = &#x27;flink_user_stats&#x27;
+    )
+&quot;&quot;&quot;</span>)</code></pre><p><strong>关键：有没有 <code>PRIMARY KEY</code> 决定写入语义</strong></p><table>
+<thead><tr><th>声明</th><th>生成 SQL</th><th>语义</th></tr></thead>
+<tbody>
+<tr><td><strong>有</strong> <code>PRIMARY KEY</code></td><td><code>INSERT ... ON CONFLICT ... DO UPDATE</code></td><td><strong>UPSERT</strong>（幂等，可重放）</td></tr>
+<tr><td><strong>无</strong></td><td>普通 <code>INSERT</code></td><td>追加，重跑会重复</td></tr>
+</tbody></table><blockquote>PostgreSQL 特有：connector 3.2+ 支持 <code>ON CONFLICT DO NOTHING</code> / 通过 <code>sink.ignore-delete</code> 控制是否同步 DELETE。</blockquote><p><strong>批式写入（推荐做法，用 StatementSet）</strong>：</p><pre><span class="lang-tag">python</span><code>stmt_set = env.create_statement_set()
+stmt_set.add_insert_sql(<span class="st">&quot;&quot;&quot;
+    INSERT INTO pg_user_stats
+    SELECT status,
+           COUNT(*) AS user_cnt,
+           CAST(ROUND(AVG(balance), 2) AS DECIMAL(12, 2)) AS avg_balance,
+           CURRENT_TIMESTAMP
+    FROM pg_users
+    GROUP BY status
+&quot;&quot;&quot;</span>)
+stmt_set.execute().wait()</code></pre><p><strong>实测确认</strong>（psql 直查 pg）：</p><pre><span class="lang-tag">text</span><code> status | user_cnt | avg_balance |     updated_at
+--------+----------+-------------+---------------------
+      1 |     9687 |      992.82 | 2026-09-20 07:06:58
+      2 |      163 |     1034.15 | 2026-09-20 07:06:58
+      3 |      150 |      953.74 | 2026-09-20 07:06:58</code></pre><p><strong>写并发控制</strong>：</p><pre><span class="lang-tag">sql</span><code>&#x27;sink.buffer-flush.<span class="kw">MAX</span>-rows&#x27; = &#x27;1000&#x27;,    <span class="cm">-- 攒够 1000 行批量提交</span>
+&#x27;sink.buffer-flush.<span class="kw">INTERVAL</span>&#x27; = &#x27;1s&#x27;,      <span class="cm">-- 或每秒刷一次</span>
+&#x27;sink.<span class="kw">MAX</span>-retries&#x27;           = &#x27;3&#x27;        <span class="cm">-- 失败重试</span></code></pre><h3 id="h3-9">3.3 pg 当维表：Lookup Join（最实用的场景）</h3><p>把 pg 表当&quot;字典&quot;做实时关联，<strong>不用把整张维表加载进内存</strong>：</p><pre><span class="lang-tag">python</span><code><span class="cm"># 主表（真实场景是 Kafka 订单流）</span>
+env.execute_sql(<span class="st">&quot;&quot;&quot;
+    CREATE TABLE order_stream (
+        order_id   BIGINT,
+        user_id    BIGINT,
+        pay_amount DECIMAL(12, 2),
+        proc_time  AS PROCTIME()      -- ← Lookup Join 必需的处理时间列
+    ) WITH (&#x27;connector&#x27; = &#x27;datagen&#x27;, ...)
+&quot;&quot;&quot;</span>)
+
+<span class="cm"># 维表</span>
+env.execute_sql(<span class="st">&quot;&quot;&quot;
+    CREATE TABLE pg_users_dim (
+        id       BIGINT,
+        username VARCHAR(64),
+        status   SMALLINT,
+        level    SMALLINT,
+        PRIMARY KEY (id) NOT ENFORCED
+    ) WITH (
+        &#x27;connector&#x27; = &#x27;jdbc&#x27;,
+        &#x27;url&#x27;       = &#x27;jdbc:postgresql://host.docker.internal:5432/shop&#x27;,
+        &#x27;table-name&#x27; = &#x27;users&#x27;,
+        &#x27;lookup.cache.max-rows&#x27; = &#x27;1000&#x27;,    -- 缓存最多 1000 条
+        &#x27;lookup.cache.ttl&#x27;      = &#x27;1min&#x27;     -- 缓存 1 分钟过期
+    )
+&quot;&quot;&quot;</span>)
+
+<span class="cm"># 关联</span>
+env.execute_sql(<span class="st">&quot;&quot;&quot;
+    SELECT o.order_id, o.user_id, u.username, u.level, o.pay_amount
+    FROM order_stream AS o
+    LEFT JOIN pg_users_dim FOR SYSTEM_TIME AS OF o.proc_time AS u
+        ON o.user_id = u.id
+&quot;&quot;&quot;</span>)</code></pre><p><strong>实测结果</strong>：</p><pre><span class="lang-tag">text</span><code> order_id |  user_id |         username |  level |  pay_amount
+------------------------------------------------------------------
+        1 |       12 |       user000012 |      4 |      379.84
+        2 |       18 |       user000018 |      4 |       10.20
+        3 |       13 |       user000013 |      2 |      611.88
+        4 |       10 |       user000010 |      3 |      492.01
+        5 |       12 |       user000012 |      4 |      220.85</code></pre><p><strong>要点</strong>：</p><ul><li><code>FOR SYSTEM_TIME AS OF &lt;proctime列&gt;</code> 是<strong>语法必需</strong>，缺了报错</li><li><strong>必须缓存</strong>，否则每条流数据打一次 pg，连接数瞬间打满</li><li><code>lookup.cache</code> 有两种：<code>PARTIAL</code>（默认，只缓存 max-rows）和 <code>FULL</code>（全量加载+定期刷新，适合小维表）</li></ul><h3 id="h3-10">3.4 汇总：一段完整的端到端脚本</h3><p>已落地为 <strong><code>examples/09_postgres_integration.py</code></strong>，一次覆盖四种操作：</p><pre><span class="lang-tag">bash</span><code><span class="cm"># 容器内跑（推荐）</span>
+<span class="kw">docker</span> exec pyflink-jobmanager <span class="kw">bash</span> -c \
+  &quot;<span class="kw">cd</span> /opt/flink &amp;&amp; <span class="kw">python</span> examples/09_postgres_integration.py --local&quot;
+
+<span class="cm"># 宿主机跑（需本地装 apache-flink）</span>
+<span class="kw">python</span> examples/09_postgres_integration.py</code></pre><blockquote>⚠️ <strong>必须加 <code>--local</code>（批模式）</strong>。原因见第 4 节最大的坑。</blockquote><h3 id="h3-11">3.5 CDC：真正实时的 pg 变更捕获</h3><p>JDBC Source 是拉取式的（polling），有延迟。要<strong>准实时</strong>捕获 pg 的 INSERT/UPDATE/DELETE，</p><p>需要用 <strong>CDC 连接器</strong>（基于 pg 的逻辑复制槽 <code>wal_level=logical</code>）。</p><p><strong>依赖</strong>：</p><pre><span class="lang-tag">text</span><code>flink-connector-postgres-cdc-3.0.1.jar</code></pre><p><strong>Flink SQL 用法</strong>：</p><pre><span class="lang-tag">sql</span><code><span class="kw">CREATE</span> <span class="kw">TABLE</span> orders_cdc (
+    id         BIGINT,
+    order_no   VARCHAR(64),
+    user_id    BIGINT,
+    status     SMALLINT,
+    pay_amount DECIMAL(12,2),
+    created_at TIMESTAMP(3),
+    <span class="kw">PRIMARY</span> <span class="kw">KEY</span> (id) <span class="kw">NOT</span> <span class="kw">ENFORCED</span>
+) <span class="kw">WITH</span> (
+    &#x27;connector&#x27;      = &#x27;postgres-cdc&#x27;,
+    &#x27;hostname&#x27;       = &#x27;host.docker.internal&#x27;,
+    &#x27;port&#x27;           = &#x27;5432&#x27;,
+    &#x27;database-name&#x27;  = &#x27;shop&#x27;,
+    &#x27;schema-name&#x27;    = &#x27;public&#x27;,
+    &#x27;<span class="kw">TABLE</span>-name&#x27;     = &#x27;orders&#x27;,
+    &#x27;username&#x27;       = &#x27;shop&#x27;,
+    &#x27;password&#x27;       = &#x27;shop123&#x27;,
+    &#x27;decoding.plugin.name&#x27; = &#x27;pgoutput&#x27;,
+    &#x27;slot.name&#x27;      = &#x27;flink_orders_slot&#x27;,
+    &#x27;debezium.snapshot.mode&#x27; = &#x27;initial&#x27;    <span class="cm">-- 先全量快照，再增量</span>
+);</code></pre><p><strong>pg 侧前置条件</strong>（⚠️ 需要改 pg 配置并重启）：</p><pre><span class="lang-tag">ini</span><code># postgresql.conf
+wal_level = logical              # 默认是 replica，必须改
+max_replication_slots = 10
+max_wal_senders = 10</code></pre><pre><span class="lang-tag">sql</span><code><span class="cm">-- 账号需有 REPLICATION 权限或超级用户</span>
+ALTER ROLE shop <span class="kw">WITH</span> REPLICATION;</code></pre><p><strong>CDC vs JDBC 对比</strong>：</p><table>
+<thead><tr><th></th><th>JDBC Source</th><th>PostgreSQL CDC</th></tr></thead>
+<tbody>
+<tr><td>实时性</td><td>分钟级（轮询）</td><td>秒级 / 亚秒级</td></tr>
+<tr><td>能否捕获 DELETE</td><td>❌</td><td>✅</td></tr>
+<tr><td>能否捕获 UPDATE</td><td>需主键+轮询</td><td>✅</td></tr>
+<tr><td>对 pg 压力</td><td>重复查询</td><td>读 WAL，压力小</td></tr>
+<tr><td>pg 配置要求</td><td>无</td><td><strong>需 <code>wal_level=logical</code> + 重启</strong></td></tr>
+<tr><td>适用</td><td>定时同步、初始化</td><td>实时数仓、双写替代</td></tr>
+</tbody></table><blockquote>💡 <strong>本机注意</strong>：pg-course 的主从复制用的是 <code>wal_level=replica</code>，改成 <code>logical</code> 需重启主库。 想在本机试 CDC，改配置后要 <code>docker restart pg-primary</code>，且从库会短暂中断。 另外逻辑复制槽<strong>会持有 WAL</strong>，消费者停久了 pg 磁盘会被撑爆 —— 生产必须监控。</blockquote><hr><h2 id="h2-12">4. 踩坑清单（实测，含血泪）</h2><h3 id="h3-13">4.1 【最大的坑】流模式不能对普通字段 ORDER BY</h3><p><strong>报错</strong>：</p><pre><span class="lang-tag">text</span><code>org.apache.flink.table.api.TableException:
+Sort on a non-time-attribute field is not supported.</code></pre><p><strong>原因</strong>：Flink <strong>流模式</strong>下数据是无界的，&quot;排序&quot;在语义上不成立，只允许按时间属性排。</p><p><strong>解法</strong>：pg 的扫描/聚合/排序场景用 <strong>批模式</strong>：</p><pre><span class="lang-tag">python</span><code>env = TableEnvironment.create(EnvironmentSettings.in_batch_mode())</code></pre><p><strong>判断规则</strong>：</p><table>
+<thead><tr><th>场景</th><th>模式</th></tr></thead>
+<tbody>
+<tr><td>读 pg 表做统计、导出、排序</td><td><strong>批模式</strong></td></tr>
+<tr><td>pg 当维表 Lookup Join</td><td><strong>流模式</strong></td></tr>
+<tr><td>CDC 实时同步</td><td><strong>流模式</strong></td></tr>
+<tr><td>结果定时回写 pg</td><td>批模式（或 StatementSet）</td></tr>
+</tbody></table><h3 id="h3-14">4.2 两个 compose 项目的网络是隔离的</h3><p><code>pg-primary</code> 在 Flink 容器里 <code>NO_RESOLVE</code>。用 <code>host.docker.internal</code> 走宿主机回环。</p><h3 id="h3-15">4.3 JDBC Sink 不建表</h3><p>目标表必须预存在，否则 <code>relation does not exist</code>。</p><h3 id="h3-16">4.4 忘了加 <code>extra_hosts</code> 时 Linux 上解析失败</h3><p>Windows/Mac 的 Docker Desktop 内置了 <code>host.docker.internal</code>，Linux 上要显式声明：</p><pre><span class="lang-tag">yaml</span><code><span class="nm">extra_hosts</span>:
+  - <span class="st">&quot;host.docker.internal:host-gateway&quot;</span></code></pre><h3 id="h3-17">4.5 分区表 INSERT 必须带分区键</h3><p>本机 <code>orders</code> 表按 <code>created_at</code> 分区（11 个分区），<strong>INSERT 不提供 <code>created_at</code> 会报 <code>no partition found</code></strong>。</p><p>Flink 写这种表时，schema 里必须包含分区键字段。</p><h3 id="h3-18">4.6 从库是只读的</h3><p>往 <code>pg-standby</code> 写会报：</p><pre><span class="lang-tag">text</span><code>ERROR: cannot execute INSERT in a read-only transaction</code></pre><p>这不是故障，是流复制的正常行为。<strong>Flink 只能写主库</strong>。</p><h3 id="h3-19">4.7 连接池/并行度打爆 pg</h3><p>默认并行度 = CPU 核数，每个 subtask 一个连接。8 并行的 Lookup Join 就是 8 个常驻连接，</p><p>再叠加多个作业，很容易触顶 <code>max_connections</code>（默认 100）。</p><p><strong>解法</strong>：</p><pre><span class="lang-tag">python</span><code>env.get_config().set(<span class="st">&quot;parallelism.default&quot;</span>, <span class="st">&quot;1&quot;</span>)   <span class="cm"># 本地测试</span></code></pre><pre><span class="lang-tag">sql</span><code>&#x27;lookup.cache.<span class="kw">MAX</span>-rows&#x27; = &#x27;1000&#x27;,   <span class="cm">-- 必须开缓存</span>
+&#x27;sink.buffer-flush.<span class="kw">MAX</span>-rows&#x27; = &#x27;1000&#x27;</code></pre><p>生产建议前置 <strong>PgBouncer</strong>（pg-course 第 12 章有）。</p><h3 id="h3-20">4.8 参数化时别用 f-string 嵌 f-string</h3><pre><span class="lang-tag">python</span><code><span class="cm"># ❌ 报错：Encountered  2  at line N</span>
+env.execute_sql(<span class="st">&quot;&quot;&quot;
+    ... &#x27;url&#x27; = f&#x27;jdbc:postgresql://{HOST}:{PORT}/db&#x27; ...
+&quot;&quot;&quot;</span>)
+
+<span class="cm"># ✅ 外层三引号加 f，内层用单引号</span>
+env.execute_sql(f<span class="st">&quot;&quot;&quot;
+    ... &#x27;url&#x27; = &#x27;jdbc:postgresql://{HOST}:{PORT}/db&#x27; ...
+&quot;&quot;&quot;</span>)</code></pre><h3 id="h3-21">4.9 <code>NUMERIC</code> 精度要对齐</h3><p>Flink 的 <code>DECIMAL(12,2)</code> 写进 pg 的 <code>NUMERIC(12,2)</code> 没问题；</p><p>但 Flink <code>DOUBLE</code> 写 pg <code>NUMERIC</code> 会有精度警告，<strong>建议显式 CAST</strong>：</p><pre><span class="lang-tag">sql</span><code><span class="kw">CAST</span>(ROUND(<span class="kw">AVG</span>(balance), 2) <span class="kw">AS</span> DECIMAL(12, 2))</code></pre><hr><h2 id="h2-22">5. 典型业务场景</h2><h3 id="h3-23">5.1 实时大屏：Kafka 订单流 + pg 维表 + pg 结果表</h3><pre><span class="lang-tag">text</span><code>Kafka(订单流) ──┐
+                ├─► Flink Lookup Join(pg 维表) ─► 窗口聚合 ─► pg 结果表 ─► DBeaver/BI 展示
+pg(用户/商品) ──┘</code></pre><p>完整链路已在 <strong><code>examples/08_realtime_risk_control.py</code></strong> 验证过（Kafka 部分），</p><p>把 sink 换成 JDBC 即可。</p><h3 id="h3-24">5.2 离线报表预计算</h3><pre><span class="lang-tag">text</span><code>pg(明细表, 百万行) ─► Flink 批模式 聚合 ─► pg(汇总表) ─► DBeaver 查报表</code></pre><p><strong>优势</strong>：比在 pg 里写复杂 SQL 快得多（Flink 可并行扫描 + 内存计算），且不占用 pg 的 CPU。</p><h3 id="h3-25">5.3 异构同步：pg → MySQL / Kafka</h3><pre><span class="lang-tag">text</span><code>pg ──CDC──► Flink ──► MySQL (JDBC Sink)
+                 └──► Kafka (Kafka Sink)</code></pre><p>一套 CDC 源，多路分发。本项目 MySQL + Kafka 连接器都已就绪。</p><h3 id="h3-26">5.4 实时风控（本项目示例 08 的延伸）</h3><pre><span class="lang-tag">text</span><code>Kafka(交易流) ─► Flink CEP/规则引擎 ─► 告警写 pg ─► DBeaver 查看告警列表
+                                    └─► 告警推 Kafka</code></pre><p>风控规则/阈值表放 pg，Flink 启动时加载为广播状态，实现<strong>规则热更新</strong>。</p><hr><h2 id="h2-27">6. 快速验证清单</h2><p>跑完这套，说明 pg ↔ Flink 链路健康：</p><pre><span class="lang-tag">bash</span><code><span class="cm"># 1. 确认容器都活着</span>
+<span class="kw">docker</span> ps --format <span class="st">&quot;table {{.Names}}\t{{.Status}}&quot;</span> | grep -E <span class="st">&quot;pg-|pyflink-&quot;</span>
+
+<span class="cm"># 2. 确认 pg 驱动在容器里可见</span>
+<span class="kw">docker</span> exec pyflink-jobmanager <span class="kw">ls</span> -l /opt/flink/lib/postgresql-42.7.4.jar
+
+<span class="cm"># 3. 确认能解析 host.docker.internal</span>
+<span class="kw">docker</span> exec pyflink-jobmanager getent hosts host.docker.internal
+
+<span class="cm"># 4. 确认端口通</span>
+<span class="kw">docker</span> exec pyflink-jobmanager <span class="kw">bash</span> -c \
+  &quot;(exec 3&lt;&gt;/dev/tcp/host.docker.internal/5432) 2&gt;/dev/null &amp;&amp; <span class="kw">echo</span> OK || <span class="kw">echo</span> FAIL&quot;
+
+<span class="cm"># 5. 建结果表</span>
+<span class="kw">docker</span> exec -i pg-primary psql -U shop -d shop -c &quot;
+CREATE TABLE IF NOT EXISTS flink_user_stats (
+    status SMALLINT PRIMARY KEY, user_cnt BIGINT,
+    avg_balance NUMERIC(12,2), updated_at TIMESTAMP);&quot;
+
+<span class="cm"># 6. 跑端到端测试</span>
+<span class="kw">docker</span> exec pyflink-jobmanager <span class="kw">bash</span> -c \
+  &quot;<span class="kw">cd</span> /opt/flink &amp;&amp; <span class="kw">python</span> examples/09_postgres_integration.py --local&quot;
+
+<span class="cm"># 7. 在 pg 里确认数据落地</span>
+<span class="kw">docker</span> exec -i pg-primary psql -U shop -d shop -c \
+  <span class="st">&quot;SELECT * FROM flink_user_stats ORDER BY status;&quot;</span>
+
+<span class="cm"># 8. 确认从库也同步了（流复制 + Flink 写入联动验证）</span>
+<span class="kw">docker</span> exec -i pg-standby psql -U shop -d shop -c \
+  <span class="st">&quot;SELECT * FROM flink_user_stats ORDER BY status;&quot;</span></code></pre><p><strong>本机实测最终状态</strong>：步骤 1–8 全部通过 ✅</p><hr><h2 id="h2-28">7. 依赖清单</h2><table>
+<thead><tr><th>组件</th><th>版本</th><th>用途</th><th>获取方式</th></tr></thead>
+<tbody>
+<tr><td><code>flink-connector-jdbc</code></td><td>3.2.0-1.19</td><td>JDBC 读写核心</td><td>Maven Central</td></tr>
+<tr><td><code>postgresql</code></td><td>42.7.4</td><td>pg 驱动</td><td>Maven Central</td></tr>
+<tr><td><code>flink-connector-postgres-cdc</code></td><td>3.0.1</td><td>CDC（可选）</td><td>Maven Central</td></tr>
+<tr><td><code>flink-sql-connector-kafka</code></td><td>3.4.0-1.20</td><td>Kafka（已配）</td><td>Maven Central</td></tr>
+<tr><td><code>mysql-connector-j</code></td><td>8.0.33</td><td>MySQL（已配）</td><td>Maven Central</td></tr>
+</tbody></table><p><strong>Maven 坐标</strong>：</p><pre><span class="lang-tag">text</span><code>org/apache/flink/flink-connector-jdbc/3.2.0-1.19/flink-connector-jdbc-3.2.0-1.19.jar
+org/postgresql/postgresql/42.7.4/postgresql-42.7.4.jar
+org/apache/flink/flink-connector-postgres-cdc/3.0.1/flink-connector-postgres-cdc-3.0.1.jar</code></pre><hr><h2 id="h2-29">8. 相关文档</h2><ul><li><code>examples/09_postgres_integration.py</code> —— 本文全部示例的可运行代码</li><li><code>examples/06_connectors.py</code> —— JDBC(MySQL) / Kafka / 文件连接器基础用法</li><li><code>examples/08_realtime_risk_control.py</code> —— Kafka 实时风控完整案例</li><li><code>docs/docker-deployment-tutorial.md</code> —— PyFlink Docker 部署教程（连接器放置、踩坑）</li><li><code>postgresql-course/docs/12-监控性能与连接池.md</code> —— PgBouncer 连接池配置</li><li><code>postgresql-course/docs/15-DBeaver连接与可视化操作.md</code> —— 用 DBeaver 查看 Flink 写入的结果表</li></ul>
+</main>
+<script>
+const links=[...document.querySelectorAll('#side a')];
+const targets=links.map(a=>document.querySelector(a.getAttribute('href'))).filter(Boolean);
+function onScroll(){
+  let cur=0;
+  targets.forEach((t,i)=>{ if(t.getBoundingClientRect().top<120) cur=i; });
+  links.forEach((a,i)=>a.classList.toggle('active',i===cur));
+}
+document.addEventListener('scroll',onScroll,{passive:true});
+onScroll();
+</script>
+</body>
+</html>

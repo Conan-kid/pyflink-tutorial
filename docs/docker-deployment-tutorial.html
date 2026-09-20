@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Docker 部署详细教程 · PostgreSQL 主从 + PyFlink 集群</title>
+<style>
+:root{
+  --bg:#0f1115;--bg2:#161922;--bg3:#1d212c;--bd:#2a2f3d;
+  --tx:#e4e7ee;--tx2:#9aa3b5;--tx3:#6b7385;
+  --acc:#7f77dd;--acc2:#9fe1cb;--warn:#ef9f27;--ok:#97c459;
+  --code-bg:#12151c;--side-w:260px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  font-size:15px;line-height:1.75;-webkit-font-smoothing:antialiased}
+#side{position:fixed;top:0;left:0;bottom:0;width:var(--side-w);background:var(--bg2);border-right:1px solid var(--bd);
+  overflow-y:auto;padding:24px 0 40px}
+#side h1{font-size:15px;font-weight:500;padding:0 20px 4px;color:var(--tx)}
+#side .sub{font-size:12px;color:var(--tx3);padding:0 20px 20px;border-bottom:1px solid var(--bd);margin-bottom:12px}
+#side a{display:block;padding:7px 20px;color:var(--tx2);text-decoration:none;font-size:13px;
+  border-left:2px solid transparent;transition:.15s}
+#side a:hover{color:var(--tx);background:var(--bg3)}
+#side a.lv2{padding-left:34px;font-size:12.5px;color:var(--tx3)}
+#side a.active{color:var(--acc2);border-left-color:var(--acc);background:rgba(127,119,221,.08)}
+#main{margin-left:var(--side-w);padding:48px 56px 120px;max-width:1000px}
+h1{font-size:28px;font-weight:500;margin:0 0 8px;letter-spacing:-.3px}
+h2{font-size:21px;font-weight:500;margin:56px 0 16px;padding-bottom:10px;border-bottom:1px solid var(--bd);scroll-margin-top:20px}
+h3{font-size:16.5px;font-weight:500;margin:32px 0 12px;color:var(--acc2);scroll-margin-top:20px}
+h4{font-size:14.5px;font-weight:500;margin:22px 0 10px;color:var(--tx)}
+p{margin:12px 0;color:#cdd3e0}
+blockquote{margin:16px 0;padding:12px 18px;background:var(--bg2);border-left:3px solid var(--acc);
+  border-radius:0 8px 8px 0;color:var(--tx2);font-size:14px}
+blockquote p{margin:4px 0;color:var(--tx2)}
+ul,ol{margin:12px 0 12px 24px}
+li{margin:6px 0;color:#cdd3e0}
+li>ul,li>ol{margin:6px 0 6px 20px}
+code{font-family:"SF Mono",Consolas,"Cascadia Code",Menlo,monospace;font-size:13px;
+  background:var(--bg3);padding:2px 6px;border-radius:4px;color:#e6b673}
+pre{background:var(--code-bg);border:1px solid var(--bd);border-radius:10px;padding:16px 18px;
+  overflow-x:auto;margin:16px 0;position:relative}
+pre code{background:none;padding:0;color:#c9d1d9;font-size:12.8px;line-height:1.65}
+.lang-tag{position:absolute;top:8px;right:12px;font-size:10.5px;color:var(--tx3);
+  text-transform:uppercase;letter-spacing:.6px;font-family:monospace}
+table{width:100%;border-collapse:collapse;margin:18px 0;font-size:13.5px;
+  border:1px solid var(--bd);border-radius:10px;overflow:hidden}
+th{background:var(--bg3);text-align:left;padding:10px 14px;font-weight:500;color:var(--tx);
+  border-bottom:1px solid var(--bd);font-size:13px}
+td{padding:9px 14px;border-bottom:1px solid rgba(42,47,61,.6);color:#c3cad8;vertical-align:top}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:rgba(29,33,44,.5)}
+hr{border:none;border-top:1px solid var(--bd);margin:40px 0}
+a{color:var(--acc2)}
+strong{font-weight:500;color:var(--tx)}
+.hero{background:linear-gradient(135deg,rgba(127,119,221,.14),rgba(29,158,117,.09));
+  border:1px solid var(--bd);border-radius:14px;padding:26px 28px;margin-bottom:32px}
+.hero .tag{display:inline-block;font-size:11.5px;color:var(--acc2);background:rgba(29,158,117,.14);
+  padding:3px 10px;border-radius:20px;margin-bottom:12px;letter-spacing:.3px}
+.hero h1{margin-bottom:10px}
+.hero p{color:var(--tx2);font-size:14px;margin:6px 0}
+.hero .meta{display:flex;flex-wrap:wrap;gap:20px;margin-top:16px;font-size:12.5px;color:var(--tx3)}
+.hero .meta b{color:var(--tx2);font-weight:500}
+.lead{margin-top:0}
+.kw{color:#ff7b72}.st{color:#a5d6ff}.cm{color:#8b949e;font-style:italic}
+.nm{color:#79c0ff}.fn{color:#d2a8ff}.dc{color:#e6b673}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:#333a4a;border-radius:5px}
+::-webkit-scrollbar-thumb:hover{background:#414a5e}
+@media(max-width:1100px){#side{display:none}#main{margin-left:0;padding:32px 24px 80px}}
+</style>
+</head>
+<body id="top">
+<nav id="side">
+  <h1>Docker 部署教程</h1>
+  <div class="sub">pg-course · pyflink-tutorial</div>
+  <a href="#top" style="font-weight:500;color:var(--tx)">Docker 部署教程</a><a href="#h2-0" class="">目录</a><a href="#h2-1" class="">0. 先把 Docker 数据挪到 D 盘</a><a href="#h3-2" class="lv2">0.1 为什么</a><a href="#h3-3" class="lv2">0.2 操作步骤</a><a href="#h3-4" class="lv2">0.3 踩坑警告</a><a href="#h3-5" class="lv2">0.4 本机实际情况（2026-09-20 实测通过 ✅）</a><a href="#h2-6" class="">1. 部署一：pg-course（PostgreSQL 16 主从复制）</a><a href="#h3-7" class="lv2">1.1 这是什么</a><a href="#h3-8" class="lv2">1.2 文件位置</a><a href="#h3-9" class="lv2">1.3 启动</a><a href="#h3-10" class="lv2">1.4 连接</a><a href="#h3-11" class="lv2">1.5 验证复制是否正常</a><a href="#h3-12" class="lv2">1.6 数据存储位置</a><a href="#h3-13" class="lv2">1.7 项目改名说明（2026-09-20 完成）</a><a href="#h3-14" class="lv2">1.8 停止与销毁</a><a href="#h3-15" class="lv2">1.9 已知&quot;假故障&quot;</a><a href="#h2-16" class="">2. 部署二：pyflink-tutorial（PyFlink 集群）</a><a href="#h3-17" class="lv2">2.1 这是什么</a><a href="#h3-18" class="lv2">2.2 核心难点：官方镜像没有 Python</a><a href="#h3-19" class="lv2">2.3 文件位置</a><a href="#h3-20" class="lv2">2.4 启动</a><a href="#h3-21" class="lv2">2.5 访问入口</a><a href="#h3-22" class="lv2">2.6 在集群里跑作业</a><a href="#h3-23" class="lv2">2.7 目录挂载映射（重要）</a><a href="#h3-24" class="lv2">2.8 数据存储位置</a><a href="#h3-25" class="lv2">2.9 停止与销毁</a><a href="#h3-26" class="lv2">2.10 profile 机制说明</a><a href="#h3-27" class="lv2">2.11 拉不到镜像怎么办（国内网络必看）</a><a href="#h3-28" class="lv2">2.12 本机实测记录（2026-09-20）</a><a href="#h3-29" class="lv2">2.13 连接器 JAR 的正确放置方式（重要）</a><a href="#h3-30" class="lv2">2.14 示例代码怎么同时适配「宿主机」和「容器」</a><a href="#h2-31" class="">3. 存储位置总表</a><a href="#h3-32" class="lv2">3.1 Docker 本体</a><a href="#h3-33" class="lv2">3.2 pg-course 项目</a><a href="#h3-34" class="lv2">3.3 pyflink-tutorial 项目</a><a href="#h2-35" class="">4. 常用命令速查</a><a href="#h3-36" class="lv2">4.1 全局</a><a href="#h3-37" class="lv2">4.2 容器</a><a href="#h3-38" class="lv2">4.3 镜像</a><a href="#h3-39" class="lv2">4.4 卷</a><a href="#h3-40" class="lv2">4.5 compose</a><a href="#h2-41" class="">5. 启动方式汇总</a><a href="#h3-42" class="lv2">5.1 前提：Docker Desktop 要开着</a><a href="#h3-43" class="lv2">5.2 启动 pg-course</a><a href="#h3-44" class="lv2">5.3 启动 pyflink-tutorial</a><a href="#h3-45" class="lv2">5.4 全部停掉</a><a href="#h2-46" class="">6. 故障排查</a><a href="#h3-47" class="lv2">6.1 wsl.exe 被安全策略拦截</a><a href="#h3-48" class="lv2">6.2 容器起不来 / 提示 invalid rootfs</a><a href="#h3-49" class="lv2">6.3 改项目名后数据&quot;丢了&quot;</a><a href="#h3-50" class="lv2">6.4 PyFlink 报 `python: command not found`</a><a href="#h3-51" class="lv2">6.5 PyFlink 中文乱码</a><a href="#h3-52" class="lv2">6.6 端口冲突</a><a href="#h3-53" class="lv2">6.7 Docker 磁盘满了</a><a href="#h3-54" class="lv2">6.8 查看启动失败原因</a><a href="#h3-55" class="lv2">6.9 构建镜像时 JAR 下载 404</a><a href="#h3-56" class="lv2">6.10 构建时校验脚本把自己卡死</a><a href="#h3-57" class="lv2">6.11 Kafka 镜像拉不下来（免费加速节点繁忙）</a><a href="#h3-58" class="lv2">6.12 端口被本机原生服务占用</a><a href="#h3-59" class="lv2">6.13 软链没生效导致 Kafka 连接器找不到</a><a href="#h3-60" class="lv2">6.14 重要提醒：别信 Git Bash 的管道</a><a href="#h2-61" class="">附录：本机实测记录（2026-09-20）</a><a href="#h3-62" class="lv2">本次踩坑清单（按发生顺序）</a>
+</nav>
+<main id="main">
+<div class="hero">
+  <span class="tag">Docker Desktop 4.89 · WSL2 · 实测</span>
+  <h1>Docker 部署详细教程</h1>
+  <p class="lead">两套部署的完整手册：PostgreSQL 16 主从复制，以及 PyFlink 集群。含数据盘迁移、目录位置、启动运行、故障排查。</p>
+  <div class="meta">
+    <span><b>2</b> 套部署环境</span><span><b>6</b> 章完整讲解</span><span><b>全路径</b> 标注存储位置</span><span><b>实测</b> 踩坑记录</span>
+  </div>
+</div>
+<blockquote>本机实测环境：Windows 11 · Docker Desktop 4.89.0 · WSL2 后端 撰写时间：2026-09-20 ｜ <strong>状态：全部部署完成，8 个示例 8/8 通过 ✅</strong> 覆盖内容：两套部署 —— <strong>pg-course</strong>（PostgreSQL 主从）和 <strong>pyflink-tutorial</strong>（PyFlink 集群）</blockquote><h2 id="h2-0">目录</h2><ul><li><a href="#0-先把-docker-数据挪到-d-盘">0. 先把 Docker 数据挪到 D 盘</a></li><li><a href="#1-部署一pg-coursepostgresql-16-主从复制">1. 部署一：pg-course（PostgreSQL 16 主从复制）</a></li><li><a href="#2-部署二pyflink-tutorialpyflink-集群">2. 部署二：pyflink-tutorial（PyFlink 集群）</a></li><li><a href="#3-存储位置总表">3. 存储位置总表</a></li><li><a href="#4-常用命令速查">4. 常用命令速查</a></li><li><a href="#5-启动方式汇总">5. 启动方式汇总</a></li><li><a href="#6-故障排查">6. 故障排查</a></li></ul><hr><h2 id="h2-1">0. 先把 Docker 数据挪到 D 盘</h2><h3 id="h3-2">0.1 为什么</h3><p>Docker Desktop 默认把所有数据（镜像、容器、卷）塞在 C 盘：</p><pre><span class="lang-tag">text</span><code>C:\Users\wzm\AppData\Local\Docker\wsl\disk\docker_data.vhdx   ← 镜像+容器+卷，都在这
+C:\Users\wzm\AppData\Local\Docker\wsl\main\ext4.vhdx          ← WSL 发行版本体</code></pre><p>本机迁之前 <code>docker_data.vhdx</code> 已经 <strong>6.06 GB</strong>，而 C 盘剩 290 GB。后面要拉 Flink（1 GB+）、Kafka、MySQL 等镜像，不挪迟早爆。</p><p><strong>D 盘剩 803 GB</strong>，挪过去一劳永逸。</p><h3 id="h3-3">0.2 操作步骤</h3><p><strong>第 1 步：完全退出 Docker Desktop</strong></p><pre><span class="lang-tag">bash</span><code><span class="cm"># 用 Docker 自带的 CLI 优雅关闭（比任务管理器杀进程安全）</span>
+<span class="st">&quot;C:\Program Files\Docker\Docker\DockerCli.exe&quot;</span> -Shutdown</code></pre><p>等待约 15 秒，确认进程全退：</p><pre><span class="lang-tag">powershell</span><code>Get-Process | Where-Object { $_.ProcessName -like &quot;*docker*&quot; }
+Get-Service com.docker.service
+# 期望：无 docker 进程，服务状态 Stopped</code></pre><p><strong>第 2 步：备份原数据（务必做）</strong></p><pre><span class="lang-tag">powershell</span><code>$src = &quot;$env:LOCALAPPDATA\Docker\wsl&quot;
+$bak = &quot;D:\DockerData\_backup_before_migrate&quot;
+New-Item -ItemType Directory -Force -Path $bak | Out-Null
+Copy-Item &quot;$src\disk&quot; -Destination &quot;$bak\disk&quot; -Recurse -Force
+Copy-Item &quot;$src\main&quot; -Destination &quot;$bak\main&quot; -Recurse -Force</code></pre><blockquote>⚠️ <strong>绝不能复制正在运行的 vhdx</strong>。虚拟磁盘挂载状态下复制，轻则文件损坏，重则整个 Docker 数据报废。必须先确认 Docker 完全停止。</blockquote><p><strong>第 3 步：改配置文件</strong></p><p>文件：<code>C:\Users\wzm\AppData\Roaming\Docker\settings-store.json</code></p><p>加一个 <code>CustomWslDistroDir</code> 字段（注意反斜杠要双写）：</p><pre><span class="lang-tag">json</span><code>{
+  <span class="st">&quot;AutoStart&quot;</span>: false,
+  <span class="st">&quot;CustomWslDistroDir&quot;</span>: <span class="st">&quot;D:\\DockerData&quot;</span>,
+  <span class="st">&quot;DisplayedOnboarding&quot;</span>: true,
+  <span class="st">&quot;EnableDockerAI&quot;</span>: true,
+  <span class="st">&quot;InferenceCanUseGPUVariant&quot;</span>: true,
+  <span class="st">&quot;LastContainerdSnapshotterEnable&quot;</span>: 1788405088,
+  <span class="st">&quot;LicenseTermsVersion&quot;</span>: 2,
+  <span class="st">&quot;SettingsVersion&quot;</span>: 45,
+  <span class="st">&quot;UseContainerdSnapshotter&quot;</span>: true
+}</code></pre><blockquote>也可以用图形界面：Settings → Resources → Advanced → <strong>Disk image location</strong>。GUI 容错率更高，推荐新手走 GUI。</blockquote><p><strong>第 4 步：把数据放到新位置</strong></p><p>Docker 期望的目录结构（<strong>注意层级</strong>）：</p><pre><span class="lang-tag">text</span><code>D:\DockerData\
+├── disk\
+│   └── docker_data.vhdx     ← 镜像/容器/卷数据
+└── main\
+    └── ext4.vhdx            ← WSL 发行版本体</code></pre><pre><span class="lang-tag">powershell</span><code>$target = &quot;D:\DockerData&quot;
+New-Item -ItemType Directory -Force -Path &quot;$target\disk&quot; | Out-Null
+New-Item -ItemType Directory -Force -Path &quot;$target\main&quot; | Out-Null
+Copy-Item &quot;$target\_backup_before_migrate\disk\docker_data.vhdx&quot; -Destination &quot;$target\disk\docker_data.vhdx&quot; -Force
+Copy-Item &quot;$target\_backup_before_migrate\main\ext4.vhdx&quot; -Destination &quot;$target\main\ext4.vhdx&quot; -Force</code></pre><p><strong>第 5 步：启动验证</strong></p><pre><span class="lang-tag">powershell</span><code>Start-Process &quot;C:\Program Files\Docker\Docker\Docker Desktop.exe&quot;</code></pre><p>等 60~90 秒，然后：</p><pre><span class="lang-tag">bash</span><code><span class="kw">docker</span> info          <span class="cm"># 能正常返回信息 = 成功</span>
+<span class="kw">docker</span> ps -a         <span class="cm"># 原容器还在 = 数据没丢</span></code></pre><p><strong>第 6 步：确认新位置生效 + 清理</strong></p><pre><span class="lang-tag">powershell</span><code># 确认 vhdx 已在 D 盘且时间戳是新的
+Get-ChildItem &quot;D:\DockerData&quot; -Recurse -File | Select-Object FullName, Length, LastWriteTime</code></pre><p>确认一切正常后，删掉 C 盘旧目录释放空间：</p><pre><span class="lang-tag">powershell</span><code>Remove-Item &quot;$env:LOCALAPPDATA\Docker\wsl&quot; -Recurse -Force</code></pre><blockquote>⚠️ <strong>先确认 Docker 在新位置跑起来了再删</strong>。备份目录 <code>D:\DockerData\_backup_before_migrate</code> 可以再放几天，确认稳定后再删。</blockquote><h3 id="h3-4">0.3 踩坑警告</h3><table>
+<thead><tr><th>坑</th><th>后果</th><th>正确做法</th></tr></thead>
+<tbody>
+<tr><td>在 <code>~/.docker/daemon.json</code> 里设 <code>data-root</code></td><td><strong>WSL2 模式下容器起不来</strong>（<code>invalid rootfs</code> 错误）</td><td>WSL2 后端<strong>不要动</strong> <code>data-root</code>，用 <code>CustomWslDistroDir</code></td></tr>
+<tr><td>复制运行中的 vhdx</td><td>数据损坏，可能全丢</td><td>先 <code>-Shutdown</code>，确认进程退净</td></tr>
+<tr><td>路径反斜杠没双写</td><td>JSON 解析失败，配置不生效</td><td><code>&quot;D:\\DockerData&quot;</code></td></tr>
+<tr><td>目标层级不对</td><td>Docker 找不到数据，会新建空卷（看起来像&quot;数据丢了&quot;）</td><td>严格按 <code>disk\</code> / <code>main\</code> 两层</td></tr>
+<tr><td>网络驱动器 / 外置硬盘</td><td>IO 慢，镜像拉取和容器启动明显卡</td><td>用本机内置盘（D 盘正好）</td></tr>
+</tbody></table><h3 id="h3-5">0.4 本机实际情况（2026-09-20 实测通过 ✅）</h3><table>
+<thead><tr><th>项</th><th>结果</th></tr></thead>
+<tbody>
+<tr><td>vhdx 已复制到 <code>D:\DockerData</code></td><td>✅</td></tr>
+<tr><td><code>settings-store.json</code> 已加 <code>CustomWslDistroDir</code></td><td>✅</td></tr>
+<tr><td>启动后 <code>D:\DockerData\disk\docker_data.vhdx</code> 时间戳更新为<strong>当前时间</strong></td><td>✅ 证明 Docker 在用 D 盘</td></tr>
+<tr><td>两个 pg 容器自动恢复</td><td>✅ 均 healthy</td></tr>
+<tr><td>迁盘后数据完整性</td><td>✅ <code>shop</code> 库 37 表 / 447MB 不变</td></tr>
+</tbody></table><p><strong>启动验证时踩到的两个坎（都已解决）</strong>：</p><p><strong>坎 1：<code>wsl.exe</code> 被 WorkBuddy 安全策略拦截</strong></p><p>报错：</p><pre><span class="lang-tag">text</span><code>PROGRAM BLOCKED BY SECURITY POLICY
+  - wsl.exe (C:\Windows\System32\wsl.exe)</code></pre><p>解决：<strong>WorkBuddy 客户端 → 左下角头像 → 设置 → 安全中心 → 命令黑名单 → 移除 <code>wsl.exe</code></strong>。</p><p>（注意是 WorkBuddy 自己的安全中心，不是 Windows 系统设置）</p><p><strong>坎 2：<code>com.docker.service</code> 需要管理员权限</strong></p><p>报错（<code>com.docker.backend.exe.log</code>）：</p><pre><span class="lang-tag">text</span><code>engine linux/wsl failed to start: checking WSL version:
+executing wsl --version: fork/exec C:\WINDOWS\System32\wsl.exe: Access is denied.</code></pre><p>原因：普通用户（Medium 完整性级别）无法启动 <code>com.docker.service</code>（<code>Start-Service</code> 报</p><p>「无法打开计算机上的服务」）。服务起不来 → backend 拿不到足够权限 → 调 wsl.exe 被拒。</p><p>解决：<strong>右键 <code>Docker Desktop.exe</code> → 以管理员身份运行</strong>。</p><p>一劳永逸的话：右键该 exe → 属性 → 兼容性 → 勾选「以管理员身份运行此程序」。</p><blockquote>排查技巧：<code>Docker Desktop.exe.log</code> 里如果只有旧的 <code>backend process exited</code>、 没有新启动记录，说明进程起来立刻退了；真正的原因要去 <code>com.docker.backend.exe.log</code> 里找。</blockquote><hr><h2 id="h2-6">1. 部署一：pg-course（PostgreSQL 16 主从复制）</h2><h3 id="h3-7">1.1 这是什么</h3><p>一套 PostgreSQL 学习环境，一主一从，演示<strong>流式复制 + 复制槽 + WAL 归档</strong>：</p><pre><span class="lang-tag">text</span><code>pg-primary (5432)  ──WAL 流复制──▶  pg-standby (5433, 只读)
+       │
+       └──WAL 归档──▶  /archive 卷（可用于 PITR 时间点恢复）</code></pre><h3 id="h3-8">1.2 文件位置</h3><table>
+<thead><tr><th>内容</th><th>宿主机绝对路径</th></tr></thead>
+<tbody>
+<tr><td><strong>项目根目录</strong></td><td><code>C:\Users\wzm\WorkBuddy\2026-09-02-17-21-42\postgresql-course\examples\docker\</code></td></tr>
+<tr><td>compose 配置</td><td>上述目录下的 <code>docker-compose.yml</code></td></tr>
+<tr><td>主库配置</td><td><code>...\examples\docker\conf\postgresql.conf</code></td></tr>
+<tr><td>认证配置</td><td><code>...\examples\docker\conf\pg_hba.conf</code></td></tr>
+<tr><td>初始化脚本</td><td><code>...\examples\docker\initdb\00-init.sql</code></td></tr>
+<tr><td>归档目录创建脚本</td><td><code>...\examples\docker\initdb\01-archive-dir.sh</code></td></tr>
+</tbody></table><h3 id="h3-9">1.3 启动</h3><pre><span class="lang-tag">bash</span><code><span class="kw">cd</span> <span class="st">&quot;C:/Users/wzm/WorkBuddy/2026-09-02-17-21-42/postgresql-course/examples/docker&quot;</span>
+
+<span class="kw">docker</span> <span class="kw">compose</span> up -d          <span class="cm"># 启动</span>
+<span class="kw">docker</span> <span class="kw">compose</span> ps             <span class="cm"># 看状态</span>
+<span class="kw">docker</span> <span class="kw">compose</span> logs -f primary   <span class="cm"># 跟踪主库日志</span></code></pre><p><strong>首次启动会稍慢</strong>（约 30~60 秒），因为从库要用 <code>pg_basebackup</code> 从主库拉全量数据。</p><h3 id="h3-10">1.4 连接</h3><table>
+<thead><tr><th>角色</th><th>地址</th><th>账号</th></tr></thead>
+<tbody>
+<tr><td>主库（读写）</td><td><code>localhost:5432</code></td><td><code>postgres</code> / <code>postgres</code></td></tr>
+<tr><td>从库（只读）</td><td><code>localhost:5433</code></td><td><code>postgres</code> / <code>postgres</code></td></tr>
+<tr><td>复制用户</td><td>容器内部</td><td><code>replicator</code> / <code>replicator123</code></td></tr>
+<tr><td>业务库</td><td><code>shop</code></td><td>—</td></tr>
+</tbody></table><p>命令行连接：</p><pre><span class="lang-tag">bash</span><code><span class="cm"># 主库</span>
+<span class="kw">docker</span> exec -it pg-primary psql -U postgres -d shop
+
+<span class="cm"># 从库</span>
+<span class="kw">docker</span> exec -it pg-standby psql -U postgres -d shop</code></pre><h3 id="h3-11">1.5 验证复制是否正常</h3><pre><span class="lang-tag">bash</span><code><span class="cm"># 1. 主库看复制状态 —— 期望 state = streaming</span>
+<span class="kw">docker</span> exec pg-primary psql -U postgres -c \
+  <span class="st">&quot;SELECT client_addr, state, sync_state, sent_lsn, replay_lsn FROM pg_stat_replication;&quot;</span>
+
+<span class="cm"># 2. 从库确认自己是只读副本 —— 期望 t</span>
+<span class="kw">docker</span> exec pg-standby psql -U postgres -c <span class="st">&quot;SELECT pg_is_in_recovery();&quot;</span>
+
+<span class="cm"># 3. 复制槽 —— 期望 active = t</span>
+<span class="kw">docker</span> exec pg-primary psql -U postgres -c \
+  <span class="st">&quot;SELECT slot_name, slot_type, active FROM pg_replication_slots;&quot;</span>
+
+<span class="cm"># 4. 实测同步：主库写一条，从库应该能读到</span>
+<span class="kw">docker</span> exec pg-primary psql -U postgres -d shop -c \
+  <span class="st">&quot;CREATE TABLE _t(id int); INSERT INTO _t VALUES (1);&quot;</span>
+sleep 2
+<span class="kw">docker</span> exec pg-standby psql -U postgres -d shop -c <span class="st">&quot;SELECT * FROM _t;&quot;</span>
+<span class="kw">docker</span> exec pg-primary psql -U postgres -d shop -c <span class="st">&quot;DROP TABLE _t;&quot;</span>
+
+<span class="cm"># 5. 从库写入应被拒绝 —— 期望报错 read-only transaction</span>
+<span class="kw">docker</span> exec pg-standby psql -U postgres -d shop -c <span class="st">&quot;INSERT INTO _t VALUES (2);&quot;</span></code></pre><h3 id="h3-12">1.6 数据存储位置</h3><table>
+<thead><tr><th>数据</th><th>Docker 卷名</th><th>宿主机实际路径（WSL2 内部）</th></tr></thead>
+<tbody>
+<tr><td>主库数据</td><td><code>docker_pg_primary_data</code></td><td><code>\\wsl$\docker-desktop-data\...\volumes\docker_pg_primary_data\_data</code></td></tr>
+<tr><td>从库数据</td><td><code>docker_pg_standby_data</code></td><td>同上结构</td></tr>
+<tr><td>WAL 归档</td><td><code>docker_pg_archive</code></td><td>同上结构</td></tr>
+</tbody></table><p>查看卷在宿主机的路径：</p><pre><span class="lang-tag">bash</span><code><span class="kw">docker</span> volume inspect docker_pg_primary_data --format &<span class="cm">#x27;{{.Mountpoint}}&#x27;</span></code></pre><blockquote>卷名为什么还是 <code>docker_pg_<em></code> 而不是 <code>pg-course_pg_</em></code>？见 <a href="#18-项目改名说明">1.8 改名说明</a>。</blockquote><h3 id="h3-13">1.7 项目改名说明（2026-09-20 完成）</h3><p><strong>改之前</strong>：项目名是目录名 <code>docker</code>（默认行为），有点敷衍。</p><p><strong>改之后</strong>：<code>pg-course</code>。</p><p><strong>关键点：改项目名会导致卷名跟着变</strong>，默认规则是 <code>&lt;项目名&gt;_&lt;卷key&gt;</code>：</p><pre><span class="lang-tag">text</span><code>改名前：docker_pg_primary_data
+改名后：pg-course_pg_primary_data   ← 这是新建的空卷！数据&quot;丢失&quot;！</code></pre><p><strong>解决方案</strong>：在 compose 里用 <code>volumes.&lt;key&gt;.name</code> 把卷名<strong>显式锁死</strong>成原值，</p><p>并且加 <code>external: true</code> 告诉 Docker「这卷已经存在，别乱动」：</p><pre><span class="lang-tag">yaml</span><code><span class="nm">name</span>: pg-course        <span class="cm"># ← 项目名</span>
+
+<span class="nm">volumes</span>:
+  <span class="nm">pg_primary_data</span>:
+    <span class="nm">external</span>: true                    <span class="cm"># ← 已存在的卷，直接复用</span>
+    <span class="nm">name</span>: docker_pg_primary_data      <span class="cm"># ← 锁死为原卷名，数据零搬迁</span>
+  <span class="nm">pg_standby_data</span>:
+    <span class="nm">external</span>: true
+    <span class="nm">name</span>: docker_pg_standby_data
+  <span class="nm">pg_archive</span>:
+    <span class="nm">external</span>: true
+    <span class="nm">name</span>: docker_pg_archive
+
+<span class="nm">networks</span>:
+  <span class="nm">pgnet</span>:
+    <span class="nm">external</span>: true
+    <span class="nm">name</span>: docker_pgnet</code></pre><blockquote><strong>为什么必须加 <code>external: true</code></strong>：只写 <code>name</code> 的话，Docker 仍会检查卷的 <code>com.docker.compose.project</code> 标签，发现是旧项目 <code>docker</code> 创建的，就会告警：  ``<code> volume &quot;docker_pg_primary_data&quot; already exists but was created for project &quot;docker&quot; (expected &quot;pg-course&quot;). Use </code>external: true<code> to use an existing volume </code>`<code>  加上 </code>external: true` 后 Docker 就不再校验归属，直接拿来用。</blockquote><p><strong>改项目名的完整操作序列</strong>（本机实测通过）：</p><pre><span class="lang-tag">bash</span><code><span class="kw">cd</span> <span class="st">&quot;C:/Users/wzm/WorkBuddy/2026-09-02-17-21-42/postgresql-course/examples/docker&quot;</span>
+
+<span class="cm"># 1. 先改好 compose 文件（name + external 卷/网络）</span>
+
+<span class="cm"># 2. 删掉旧容器 —— 注意用 docker rm 而不是 compose down！</span>
+<span class="cm">#    因为旧容器属于项目 docker，而当前 compose 项目是 pg-course，</span>
+<span class="cm">#    compose down 找不到它们，会报 container name already in use</span>
+<span class="kw">docker</span> <span class="kw">rm</span> -f pg-primary pg-standby
+
+<span class="cm"># 3. 确认数据卷还在（关键！）</span>
+<span class="kw">docker</span> volume <span class="kw">ls</span>          <span class="cm"># 应看到 docker_pg_primary_data 等三个卷</span>
+
+<span class="cm"># 4. 用新项目名启动</span>
+<span class="kw">docker</span> <span class="kw">compose</span> up -d
+<span class="kw">docker</span> <span class="kw">compose</span> <span class="kw">ls</span> -a      <span class="cm"># 期望看到 NAME = pg-course</span></code></pre><blockquote>⚠️ <strong>第 2 步千万别用 <code>docker compose down -v</code></strong> —— <code>-v</code> 会删数据卷。 用 <code>docker rm -f &lt;容器名&gt;</code> 只删容器，卷安全无恙。</blockquote><p>验证配置解析正确：</p><pre><span class="lang-tag">bash</span><code><span class="kw">docker</span> <span class="kw">compose</span> config --format json | <span class="kw">python</span> -c &quot;
+import sys, json
+d = json.load(sys.stdin)
+print(&<span class="cm">#x27;项目名:&#x27;, d.get(&#x27;name&#x27;))</span>
+print(&<span class="cm">#x27;容器名:&#x27;, [s.get(&#x27;container_name&#x27;) for s in d.get(&#x27;services&#x27;, {}).values()])</span>
+<span class="kw">for</span> k, v in d.get(&<span class="cm">#x27;volumes&#x27;, {}).items():</span>
+    print(f&<span class="cm">#x27;  {k} -&gt; {v.get(\ 0 )} (external={v.get(\ 1 )})&#x27;)</span>
+&quot;</code></pre><p>期望输出：</p><pre><span class="lang-tag">text</span><code>项目名: pg-course
+容器名: [&#x27;pg-primary&#x27;, &#x27;pg-standby&#x27;]
+  pg_archive -&gt; docker_pg_archive (external=True)
+  pg_primary_data -&gt; docker_pg_primary_data (external=True)
+  pg_standby_data -&gt; docker_pg_standby_data (external=True)</code></pre><p><strong>实测结果（2026-09-20）</strong>：改名后重启，<code>shop</code> 库 37 张表 / 447MB 完好，</p><p>主从复制 <code>streaming</code>，<code>orders_202608</code> 主从都是 41134 行 —— <strong>零数据丢失</strong>。</p><h3 id="h3-14">1.8 停止与销毁</h3><pre><span class="lang-tag">bash</span><code><span class="kw">docker</span> <span class="kw">compose</span> stop           <span class="cm"># 停止容器，保留一切</span>
+<span class="kw">docker</span> <span class="kw">compose</span> down           <span class="cm"># 停止并删除容器（数据卷保留）★ 常用</span>
+<span class="kw">docker</span> <span class="kw">compose</span> down -v        <span class="cm"># 停止并删除容器 + 数据卷（⚠️ 数据全没）</span>
+<span class="kw">docker</span> <span class="kw">compose</span> restart primary   <span class="cm"># 重启单个服务</span></code></pre><h3 id="h3-15">1.9 已知&quot;假故障&quot;</h3><p><strong><code>pg_stat_archiver.failed_count</code> 数字很大</strong>（本机是 507）——<strong>这是历史遗留，不是故障</strong>。</p><p>判断方法：比较失败时间和成功时间。</p><pre><span class="lang-tag">bash</span><code><span class="kw">docker</span> exec pg-primary psql -U postgres -x -c <span class="st">&quot;SELECT * FROM pg_stat_archiver;&quot;</span></code></pre><pre><span class="lang-tag">text</span><code>last_failed_time    = 2026-09-03 15:56    ← 失败集中在这
+last_archived_time  = 2026-09-04 09:44    ← 之后一直正常
+archived_count      = 75
+failed_count        = 507</code></pre><p>失败全发生在<strong>首次初始化阶段</strong>（initdb 灌数据时归档目录还没就绪，Postgres 每 <code>archive_timeout</code>（300 秒）重试一次）。失败时间早于最后一次成功时间，就说明已恢复。</p><p>想清零重新统计：</p><pre><span class="lang-tag">bash</span><code><span class="kw">docker</span> exec pg-primary psql -U postgres -c &quot;SELECT pg_stat_reset_shared(&<span class="cm">#x27;archiver&#x27;);&quot;</span></code></pre><hr><h2 id="h2-16">2. 部署二：pyflink-tutorial（PyFlink 集群）</h2><h3 id="h3-17">2.1 这是什么</h3><p>PyFlink 学习环境，JobManager + TaskManager 独立容器，配套 Kafka / MySQL 可选：</p><pre><span class="lang-tag">text</span><code>                    ┌──────────────────┐
+                    │   JobManager     │  :8081（Web UI）
+                    │  pyflink-1.20    │
+                    └────────┬─────────┘
+                             │ RPC
+                    ┌────────▼─────────┐
+                    │  TaskManager     │  4 个 slot
+                    │  pyflink-1.20    │
+                    └──────────────────┘
+                             │
+              ┌──────────────┴──────────────┐
+        ┌─────▼─────┐                 ┌─────▼─────┐
+        │  Kafka    │  :9092          │  MySQL    │  :3306
+        └───────────┘                 └───────────┘</code></pre><h3 id="h3-18">2.2 核心难点：官方镜像没有 Python</h3><p><strong>这是最容易踩的坑。</strong> 官方 <code>flink:1.20-scala_2.12-java17</code> 镜像里<strong>只有 Java，没有 Python</strong>，直接跑 PyFlink 会报 <code>python: command not found</code>。</p><p>所以必须自定义镜像。本项目的 <code>docker/pyflink-image/Dockerfile</code> 做了三件事：</p><ol><li>装 Python 3.11（<strong>必须是 3.9~3.11</strong>，3.12+ 装不上 PyFlink，原因见下）</li><li>装 <code>apache-flink==1.20.0</code> + <code>kafka-python</code></li><li>下载连接器 JAR（Kafka / JDBC / MySQL）</li></ol><p><strong>为什么 Python 只能用 3.9~3.11</strong>：<code>apache-flink</code> 依赖 <code>apache-beam</code>，而后者的构建脚本用了 <code>pkg_resources</code> —— 这个 API 在 3.12+ 的 setuptools 里已被移除。在 Python 3.13 上装会直接失败：</p><pre><span class="lang-tag">text</span><code>ModuleNotFoundError: No module named &#x27;pkg_resources&#x27;
+ERROR: Failed to build &#x27;apache-beam&#x27;</code></pre><h3 id="h3-19">2.3 文件位置</h3><table>
+<thead><tr><th>内容</th><th>宿主机绝对路径</th></tr></thead>
+<tbody>
+<tr><td><strong>项目根目录</strong></td><td><code>C:\Users\wzm\WorkBuddy\2026-09-20-09-28-01\pyflink-tutorial\</code></td></tr>
+<tr><td>Dockerfile</td><td><code>...\pyflink-tutorial\docker\pyflink-image\Dockerfile</code></td></tr>
+<tr><td>compose 配置</td><td><code>...\pyflink-tutorial\docker\docker-compose.yml</code></td></tr>
+<tr><td>示例代码</td><td><code>...\pyflink-tutorial\examples\01~08_*.py</code></td></tr>
+<tr><td>辅助脚本</td><td><code>...\pyflink-tutorial\scripts\*.sh</code></td></tr>
+<tr><td>数据文件</td><td><code>...\pyflink-tutorial\data\</code></td></tr>
+<tr><td>连接器 JAR 存放</td><td><code>...\pyflink-tutorial\jars\</code></td></tr>
+</tbody></table><h3 id="h3-20">2.4 启动</h3><pre><span class="lang-tag">bash</span><code><span class="kw">cd</span> <span class="st">&quot;C:/Users/wzm/WorkBuddy/2026-09-20-09-28-01/pyflink-tutorial&quot;</span>
+
+<span class="cm"># 一键启动（构建镜像 + 起集群 + 等待就绪）</span>
+<span class="kw">bash</span> scripts/docker_up.sh
+
+<span class="cm"># 需要 Kafka / MySQL 时</span>
+<span class="kw">bash</span> scripts/docker_up.sh --with-connectors</code></pre><p><strong>首次构建约 10 分钟</strong>（要装 Python + PyFlink 约 400MB 依赖 + 下 JAR），之后构建走缓存只要十几秒，启动约 30 秒。</p><p>手动分步执行等价于：</p><pre><span class="lang-tag">bash</span><code><span class="kw">cd</span> <span class="kw">docker</span>
+<span class="kw">docker</span> <span class="kw">compose</span> build                              <span class="cm"># 构建自定义镜像</span>
+<span class="kw">docker</span> <span class="kw">compose</span> up -d jobmanager taskmanager       <span class="cm"># 起 Flink 集群</span>
+<span class="kw">docker</span> <span class="kw">compose</span> --profile connectors up -d         <span class="cm"># 额外起 Kafka + MySQL</span></code></pre><h3 id="h3-21">2.5 访问入口</h3><table>
+<thead><tr><th>服务</th><th>地址</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><strong>Flink Web UI</strong></td><td>http://localhost:8081</td><td>看作业、TaskManager、checkpoint</td></tr>
+<tr><td><strong>Kafka UI</strong></td><td>http://localhost:8082</td><td>看 topic 和消息（需 <code>--profile connectors</code>）</td></tr>
+<tr><td>MySQL</td><td><code>localhost:13306</code></td><td><code>root</code> / <code>root123456</code>，库 <code>flink_demo</code></td></tr>
+<tr><td>Kafka</td><td><code>localhost:9092</code></td><td>容器内地址是 <code>kafka:9092</code></td></tr>
+</tbody></table><h3 id="h3-22">2.6 在集群里跑作业</h3><p><strong>方式一：一条命令</strong></p><pre><span class="lang-tag">bash</span><code><span class="kw">docker</span> <span class="kw">compose</span> exec jobmanager <span class="kw">python</span> /opt/flink/examples/01_hello_wordcount.py</code></pre><p><strong>方式二：交互式</strong></p><pre><span class="lang-tag">bash</span><code><span class="kw">docker</span> <span class="kw">compose</span> exec jobmanager <span class="kw">bash</span>
+<span class="cm"># 进入容器后</span>
+<span class="kw">cd</span> /opt/flink
+<span class="kw">python</span> examples/01_hello_wordcount.py</code></pre><p><strong>方式三：批量跑全部示例</strong></p><pre><span class="lang-tag">bash</span><code><span class="kw">bash</span> scripts/docker_run.sh all      <span class="cm"># 跑 01~08</span>
+<span class="kw">bash</span> scripts/docker_run.sh 08       <span class="cm"># 只跑 08</span></code></pre><p><strong>方式四：Flink SQL 客户端</strong></p><pre><span class="lang-tag">bash</span><code><span class="kw">docker</span> <span class="kw">compose</span> --profile sql run --rm sql-client</code></pre><blockquote><strong>注意</strong>：容器内的路径是 <code>/opt/flink/examples/...</code>，不是 Windows 路径。因为 compose 把宿主机的 <code>examples/</code> 挂载到了容器的 <code>/opt/flink/examples</code>。</blockquote><h3 id="h3-23">2.7 目录挂载映射（重要）</h3><p>容器内外路径对应关系：</p><table>
+<thead><tr><th>宿主机（Windows）</th><th>容器内（Linux）</th><th>用途</th></tr></thead>
+<tbody>
+<tr><td><code>...\pyflink-tutorial\examples\</code></td><td><code>/opt/flink/examples</code></td><td>示例代码</td></tr>
+<tr><td><code>...\pyflink-tutorial\scripts\</code></td><td><code>/opt/flink/scripts</code></td><td>辅助脚本</td></tr>
+<tr><td><code>...\pyflink-tutorial\data\</code></td><td><code>/opt/flink/data</code></td><td>输入数据 / 输出结果</td></tr>
+<tr><td><code>...\pyflink-tutorial\jars\</code></td><td><code>/opt/flink/lib/connectors</code></td><td>连接器 JAR</td></tr>
+<tr><td>卷 <code>flink-checkpoints</code></td><td><code>/opt/flink/checkpoints</code></td><td>Checkpoint 数据</td></tr>
+<tr><td>卷 <code>flink-savepoints</code></td><td><code>/opt/flink/savepoints</code></td><td>Savepoint 数据</td></tr>
+</tbody></table><p><strong>改代码不用重建镜像</strong> —— 因为是 bind mount，宿主机改完容器里立刻生效。</p><h3 id="h3-24">2.8 数据存储位置</h3><pre><span class="lang-tag">bash</span><code><span class="cm"># 查所有卷在宿主机的真实路径</span>
+<span class="kw">docker</span> volume <span class="kw">ls</span> --filter <span class="st">&quot;name=pyflink-tutorial&quot;</span>
+<span class="kw">docker</span> volume inspect pyflink-tutorial_flink-checkpoints --format &<span class="cm">#x27;{{.Mountpoint}}&#x27;</span></code></pre><table>
+<thead><tr><th>卷名</th><th>容器内路径</th><th>存什么</th></tr></thead>
+<tbody>
+<tr><td><code>pyflink-tutorial_flink-checkpoints</code></td><td><code>/opt/flink/checkpoints</code></td><td>作业 checkpoint</td></tr>
+<tr><td><code>pyflink-tutorial_flink-savepoints</code></td><td><code>/opt/flink/savepoints</code></td><td>手动 savepoint</td></tr>
+<tr><td><code>pyflink-tutorial_kafka-data</code></td><td><code>/var/lib/kafka/data</code></td><td>Kafka 消息（含 topic）</td></tr>
+<tr><td><code>pyflink-tutorial_mysql-data</code></td><td><code>/var/lib/mysql</code></td><td>MySQL 数据</td></tr>
+</tbody></table><blockquote>卷名前缀 <code>pyflink-tutorial_</code> 来自 compose 的 <code>name: pyflink-tutorial</code>。</blockquote><h3 id="h3-25">2.9 停止与销毁</h3><pre><span class="lang-tag">bash</span><code><span class="kw">bash</span> scripts/docker_down.sh            <span class="cm"># 停止，保留数据卷</span>
+<span class="kw">bash</span> scripts/docker_down.sh --purge    <span class="cm"># 停止并清空数据卷（会二次确认）</span></code></pre><p>等价命令：</p><pre><span class="lang-tag">bash</span><code><span class="kw">cd</span> <span class="kw">docker</span>
+<span class="kw">docker</span> <span class="kw">compose</span> --profile connectors --profile sql down       <span class="cm"># 停止</span>
+<span class="kw">docker</span> <span class="kw">compose</span> --profile connectors --profile sql down -v    <span class="cm"># 停止 + 清空</span></code></pre><h3 id="h3-26">2.10 profile 机制说明</h3><p>compose 里用了 <code>profiles</code> 让可选服务默认不启动：</p><table>
+<thead><tr><th>服务</th><th>profile</th><th>何时启动</th></tr></thead>
+<tbody>
+<tr><td><code>jobmanager</code></td><td>无</td><td>默认启动</td></tr>
+<tr><td><code>taskmanager</code></td><td>无</td><td>默认启动</td></tr>
+<tr><td><code>sql-client</code></td><td><code>sql</code></td><td><code>--profile sql up</code></td></tr>
+<tr><td><code>kafka</code></td><td><code>connectors</code></td><td><code>--profile connectors up</code></td></tr>
+<tr><td><code>kafka-ui</code></td><td><code>connectors</code></td><td>同上</td></tr>
+<tr><td><code>mysql</code></td><td><code>connectors</code></td><td>同上</td></tr>
+</tbody></table><p><strong>为什么要这样设计</strong>：只跑示例 01~05 的话根本不需要 Kafka 和 MySQL，默认启动会白白吃 2 GB 内存、拉 1 GB 镜像。按需启动。</p><h3 id="h3-27">2.11 拉不到镜像怎么办（国内网络必看）</h3><p><strong>症状</strong>：</p><pre><span class="lang-tag">text</span><code>failed to authorize: failed to fetch anonymous token:
+Get &quot;https://auth.docker.io/token?...&quot;: Bad Gateway</code></pre><p><strong>原因</strong>：Docker Hub 在国内访问不稳定，认证服务经常 502。</p><p><strong>解决：配镜像加速源</strong></p><p>编辑 <code>C:\Users\wzm\.docker\daemon.json</code>：</p><pre><span class="lang-tag">json</span><code>{
+  <span class="st">&quot;builder&quot;</span>: {
+    <span class="st">&quot;gc&quot;</span>: {
+      <span class="st">&quot;defaultKeepStorage&quot;</span>: <span class="st">&quot;20GB&quot;</span>,
+      <span class="st">&quot;enabled&quot;</span>: true
+    }
+  },
+  <span class="st">&quot;experimental&quot;</span>: false,
+  <span class="st">&quot;registry-mirrors&quot;</span>: [
+    <span class="st">&quot;https://docker.1ms.run&quot;</span>,
+    <span class="st">&quot;https://docker.xuanyuan.me&quot;</span>,
+    <span class="st">&quot;https://dockers.xuanyuan.me&quot;</span>
+  ]
+}</code></pre><blockquote>⚠️ <strong>WSL2 后端绝对不要在这里加 <code>data-root</code></strong> —— 会让容器起不来。 只加 <code>registry-mirrors</code> 是安全的。</blockquote><p>改完必须<strong>重启 Docker Desktop</strong> 才生效（<code>DockerCli.exe -Shutdown</code> 再启动）。</p><p>验证是否生效：</p><pre><span class="lang-tag">bash</span><code><span class="kw">docker</span> info | grep -A 5 <span class="st">&quot;Registry Mirrors&quot;</span>
+<span class="cm"># 应看到配置的三个镜像源</span></code></pre><p><strong>备用方案：走代理</strong></p><p>如果本机开了代理（如 Clash 在 7890 端口），可以给 Docker 配 HTTP 代理：</p><pre><span class="lang-tag">json</span><code>{
+  <span class="st">&quot;proxies&quot;</span>: {
+    <span class="st">&quot;http-proxy&quot;</span>: <span class="st">&quot;http://127.0.0.1:7890&quot;</span>,
+    <span class="st">&quot;https-proxy&quot;</span>: <span class="st">&quot;http://127.0.0.1:7890&quot;</span>
+  }
+}</code></pre><blockquote>实测：本机直连 Docker Hub 报 502，走 <code>127.0.0.1:7890</code> 代理返回 200。 但镜像加速源比代理更稳，建议优先用加速源。</blockquote><p><strong>怎么判断是网络问题还是配置问题</strong>：</p><pre><span class="lang-tag">bash</span><code>curl -sS -o /dev/null -w <span class="st">&quot;%{http_code}\n&quot;</span> https://auth.docker.io/token
+<span class="cm"># 000 或 502 = 网络不通</span>
+<span class="cm"># 200 = 网络正常，问题在别处</span></code></pre><h3 id="h3-28">2.12 本机实测记录（2026-09-20）</h3><p><strong>镜像构建</strong></p><pre><span class="lang-tag">bash</span><code><span class="kw">cd</span> <span class="kw">docker</span>
+<span class="kw">docker</span> <span class="kw">compose</span> build
+<span class="cm"># 期望最后一行：naming to docker.io/library/pyflink-tutorial:1.20</span></code></pre><p>构建耗时约 <strong>6 分钟</strong>（大部分时间花在 <code>pip install apache-flink</code>，约 400 MB 依赖）。</p><p>验证镜像里的环境：</p><pre><span class="lang-tag">bash</span><code><span class="kw">docker</span> run --rm pyflink-tutorial:1.20 <span class="kw">python</span> --version
+<span class="cm"># Python 3.11.x</span>
+
+<span class="kw">docker</span> run --rm pyflink-tutorial:1.20 <span class="kw">python</span> -c <span class="st">&quot;import pyflink; print(pyflink.__version__)&quot;</span>
+<span class="cm"># 1.20.0</span>
+
+<span class="kw">docker</span> run --rm pyflink-tutorial:1.20 <span class="kw">ls</span> /opt/flink/lib/connectors
+<span class="cm"># flink-sql-connector-kafka-3.2.0-1.20.jar</span>
+<span class="cm"># flink-connector-jdbc-3.2.0-1.19.jar</span>
+<span class="cm"># mysql-connector-j-8.0.33.jar</span></code></pre><p><strong>集群启动</strong></p><pre><span class="lang-tag">bash</span><code><span class="kw">cd</span> <span class="kw">docker</span>
+<span class="kw">docker</span> <span class="kw">compose</span> up -d jobmanager taskmanager
+<span class="kw">docker</span> <span class="kw">compose</span> ps</code></pre><p>期望两个容器都是 <code>Up</code>，jobmanager 显示 <code>(healthy)</code>。</p><p><strong>验证清单</strong></p><table>
+<thead><tr><th>#</th><th>检查项</th><th>命令</th><th>期望</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>JobManager 存活</td><td><code>curl -s http://localhost:8081/overview</code></td><td>返回 JSON，<code>taskmanagers</code> ≥ 1</td></tr>
+<tr><td>2</td><td>TaskManager 注册</td><td><code>curl -s http://localhost:8081/taskmanagers</code></td><td>含 <code>&quot;taskmanagers&quot;:[{&quot;id&quot;:...}]</code></td></tr>
+<tr><td>3</td><td>Slot 数量</td><td>上面返回里的 <code>slotsNumber</code></td><td>4</td></tr>
+<tr><td>4</td><td>Python 可用</td><td><code>docker compose exec jobmanager python --version</code></td><td>Python 3.11.x</td></tr>
+<tr><td>5</td><td>PyFlink 可导入</td><td><code>docker compose exec jobmanager python -c &quot;import pyflink; print(pyflink.__version__)&quot;</code></td><td>1.20.0</td></tr>
+<tr><td>6</td><td>中文编码</td><td>`docker compose exec jobmanager env \</td><td>grep JAVA_TOOL_OPTIONS`</td><td><code>-Dfile.encoding=UTF-8</code></td></tr>
+<tr><td>7</td><td>示例已挂载</td><td><code>docker compose exec jobmanager ls /opt/flink/examples</code></td><td>8 个 <code>.py</code> 文件</td></tr>
+</tbody></table><p><strong>跑示例</strong></p><pre><span class="lang-tag">bash</span><code><span class="cm"># 单个</span>
+<span class="kw">docker</span> <span class="kw">compose</span> exec -T jobmanager <span class="kw">python</span> /opt/flink/examples/01_hello_wordcount.py
+
+<span class="cm"># 全部（推荐，逐个报告成败）</span>
+<span class="kw">bash</span> scripts/docker_run.sh all</code></pre><p><code>docker_run.sh</code> 的判定逻辑：<strong>捕获 stdout+stderr，只要出现 <code>Traceback</code> / <code>Error</code> / <code>Exception</code> 就判失败</strong>。</p><blockquote>⚠️ <strong>示例 08 有特殊处理</strong>：它检测到 Kafka 就会起<strong>常驻流作业</strong>（永不退出）。 批量脚本会自动给 08 加 <code>--local</code> 参数走本地模拟，否则会一直挂住。 想手动跑真 Kafka 流作业：  ``<code>bash docker compose exec jobmanager python /opt/flink/examples/08_realtime_risk_control.py --kafka # 这是常驻作业，用 Ctrl-C 或 Flink Web UI 停止 </code>``</blockquote><p><strong>实测结果（2026-09-20，8/8 通过）</strong>：</p><table>
+<thead><tr><th>示例</th><th>内容</th><th>输出行数</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>01_hello_wordcount.py</code></td><td>DataStream WordCount</td><td>9</td><td>flink=3 / python=2 / sql=1 / table=1</td></tr>
+<tr><td><code>02_table_api.py</code></td><td>Table API / SQL</td><td>55</td><td></td></tr>
+<tr><td><code>03_watermark_window.py</code></td><td>事件时间 + 水位线</td><td>7</td><td></td></tr>
+<tr><td><code>04_window_types.py</code></td><td>滚动/滑动/会话窗口</td><td>3</td><td></td></tr>
+<tr><td><code>05_stateful.py</code></td><td>Keyed State + Checkpoint</td><td>8</td><td></td></tr>
+<tr><td><code>06_connectors.py</code></td><td>文件 + JDBC + Kafka</td><td>418</td><td>三段连接器<strong>全部走真实路径</strong></td></tr>
+<tr><td><code>07_udf.py</code></td><td>Python UDF / UDTF</td><td>70</td><td></td></tr>
+<tr><td><code>08_realtime_risk_control.py</code></td><td>实时风控综合案例</td><td>98</td><td>R1/R2/R3 规则均触发</td></tr>
+</tbody></table><p><strong>连接器真实验证</strong>：</p><pre><span class="lang-tag">bash</span><code><span class="cm"># MySQL 里确实建出了表</span>
+<span class="kw">docker</span> <span class="kw">compose</span> exec mysql mysql -uroot -proot123456 -e <span class="st">&quot;SHOW TABLES;&quot;</span> flink_demo
+<span class="cm"># 输出：category_summary / orders / risk_alerts / risk_rules</span>
+
+<span class="cm"># Kafka 连接正常</span>
+<span class="kw">docker</span> <span class="kw">compose</span> exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list</code></pre><p><strong>输出落到哪</strong></p><p>示例默认写到容器内 <code>/opt/flink/data/</code>，对应宿主机：</p><pre><span class="lang-tag">text</span><code>C:\Users\wzm\WorkBuddy\2026-09-20-09-28-01\pyflink-tutorial\data\</code></pre><h3 id="h3-29">2.13 连接器 JAR 的正确放置方式（重要）</h3><p><strong>Python 侧和 Java 侧的连接器是两回事</strong>：</p><table>
+<thead><tr><th>连接器类型</th><th>用什么</th><th>放哪</th></tr></thead>
+<tbody>
+<tr><td>Table / SQL 连接器</td><td><code>CREATE TABLE ... WITH (&#x27;connector&#x27;=&#x27;kafka&#x27;)</code></td><td>JAR 放进 Flink 的 <code>lib/</code></td></tr>
+<tr><td>DataStream 连接器</td><td><code>KafkaSource.builder()</code> 等 Python API</td><td>同上</td></tr>
+</tbody></table><p><strong>坑点：Flink 只扫描 <code>lib/</code> 顶层，不会递归子目录。</strong></p><p>本项目把宿主机 <code>jars/</code> 挂载到容器的 <code>/opt/flink/lib/connectors/</code>。如果把 JAR 只放在</p><p>这个子目录里，Table SQL 能识别（Flink 有额外扫描），但 **DataStream 的 <code>KafkaSource.builder()</code></p><p>会报**：</p><pre><span class="lang-tag">text</span><code>TypeError: Could not found the Java class
+&#x27;org.apache.flink.connector.kafka.source.KafkaSource.builder&#x27;.
+The Java dependencies could be specified via command line argument &#x27;--jarfile&#x27;
+or the config option &#x27;pipeline.jars&#x27;</code></pre><p><strong>解决</strong>：容器启动时把 <code>lib/connectors/*.jar</code> 软链到 <code>lib/</code> 顶层。</p><p>Dockerfile 里做了这件事，并通过 compose 的 <code>entrypoint</code> 生效：</p><pre><span class="lang-tag">dockerfile</span><code>RUN printf &#x27;%s\n&#x27; \
+      &#x27;#!/bin/bash&#x27; \
+      &#x27;set -e&#x27; \
+      &#x27;if [ -d /opt/flink/lib/connectors ]; then&#x27; \
+      &#x27;  for j in /opt/flink/lib/connectors/*.jar; do&#x27; \
+      &#x27;    [ -e &quot;$j&quot; ] || continue&#x27; \
+      &#x27;    ln -sf &quot;$j&quot; &quot;/opt/flink/lib/$(basename &quot;$j&quot;)&quot;&#x27; \
+      &#x27;  done&#x27; \
+      &#x27;fi&#x27; \
+      &#x27;exec /docker-entrypoint.sh &quot;$@&quot;&#x27; \
+      &gt; /opt/flink/link-connectors.sh \
+    &amp;&amp; chmod +x /opt/flink/link-connectors.sh</code></pre><pre><span class="lang-tag">yaml</span><code><span class="cm"># docker-compose.yml</span>
+<span class="nm">x-flink-common</span>: &amp;flink-common
+  <span class="nm">entrypoint</span>: [<span class="st">&quot;/opt/flink/link-connectors.sh&quot;</span>]   <span class="cm"># ← 启动前先建软链</span></code></pre><p><strong>为什么不用「直接把 jars/ 挂到 lib/」</strong>：那样宿主机空目录会覆盖掉镜像自带的</p><p><code>flink-dist</code> / <code>flink-table-planner</code> 等核心 JAR，Flink 直接起不来。</p><p><strong>验证软链生效</strong>：</p><pre><span class="lang-tag">bash</span><code><span class="kw">docker</span> <span class="kw">compose</span> exec jobmanager <span class="kw">ls</span> -la /opt/flink/lib/*.jar | grep -E <span class="st">&quot;kafka|jdbc|mysql&quot;</span>
+<span class="cm"># 应看到三个 lrwxrwxrwx 开头的软链，指向 lib/connectors/ 下的实际文件</span></code></pre><p><strong>放新 JAR 的正确姿势</strong>：丢进宿主机的 <code>jars/</code> 目录，然后 <code>docker compose restart jobmanager taskmanager</code>。</p><p>不用重新构建镜像。</p><h3 id="h3-30">2.14 示例代码怎么同时适配「宿主机」和「容器」</h3><p>示例里的 Kafka / MySQL 地址不能写死 <code>localhost</code>：</p><ul><li>在<strong>宿主机</strong>跑 → <code>localhost</code> 正确</li><li>在<strong>容器</strong>里跑 → <code>localhost</code> 指的是容器自己，必须用 compose 服务名 <code>kafka</code> / <code>mysql</code></li></ul><p>所以示例统一用环境变量解析：</p><pre><span class="lang-tag">python</span><code><span <span class="kw">class</span>="kw">def</span> _conn_host(env_key, default):
+    <span class="kw">return</span> os.environ.get(env_key, default)
+
+KAFKA_BOOTSTRAP = _conn_host(<span class="st">&quot;KAFKA_BOOTSTRAP&quot;</span>, <span class="st">&quot;localhost:9092&quot;</span>)
+MYSQL_HOST = _conn_host(<span class="st">&quot;MYSQL_HOST&quot;</span>, <span class="st">&quot;localhost&quot;</span>)
+MYSQL_PORT = <span class="fn">int</span>(_conn_host(<span class="st">&quot;MYSQL_PORT&quot;</span>, <span class="st">&quot;3306&quot;</span>))</code></pre><p>compose 里给 Flink 服务注入容器内地址：</p><pre><span class="lang-tag">yaml</span><code><span class="nm">environment</span>:
+  <span class="nm">KAFKA_BOOTSTRAP</span>: kafka:9092     <span class="cm"># 容器内用服务名</span>
+  <span class="nm">MYSQL_HOST</span>: mysql
+  <span class="nm">MYSQL_PORT</span>: <span class="st">&quot;3306&quot;</span></code></pre><blockquote><strong>另一个坑</strong>：在 f-string 三引号 SQL 里，地址不要写成嵌套的 <code>f&quot;...&quot;</code>， 直接写 <code>&#x27;jdbc:mysql://{MYSQL_HOST}:{MYSQL_PORT}/...&#x27;</code> 即可。 嵌套双引号 f-string 会被当成 SQL 文本的一部分， Flink 解析器会报 <code>Encountered &quot;f&quot; at line N</code>。</blockquote><hr><h2 id="h2-31">3. 存储位置总表</h2><h3 id="h3-32">3.1 Docker 本体</h3><table>
+<thead><tr><th>内容</th><th>路径</th></tr></thead>
+<tbody>
+<tr><td><strong>Docker 数据根目录</strong></td><td><code>D:\DockerData\</code></td></tr>
+<tr><td>镜像 + 容器 + 卷数据</td><td><code>D:\DockerData\disk\docker_data.vhdx</code></td></tr>
+<tr><td>WSL 发行版本体</td><td><code>D:\DockerData\main\ext4.vhdx</code></td></tr>
+<tr><td>迁移前备份</td><td><code>D:\DockerData\_backup_before_migrate\</code></td></tr>
+<tr><td>Docker Desktop 配置</td><td><code>C:\Users\wzm\AppData\Roaming\Docker\settings-store.json</code></td></tr>
+<tr><td>Docker 引擎配置</td><td><code>C:\Users\wzm\.docker\daemon.json</code></td></tr>
+<tr><td>日志</td><td><code>C:\Users\wzm\AppData\Local\Docker\log\</code></td></tr>
+</tbody></table><h3 id="h3-33">3.2 pg-course 项目</h3><table>
+<thead><tr><th>内容</th><th>路径</th></tr></thead>
+<tbody>
+<tr><td>项目目录</td><td><code>C:\Users\wzm\WorkBuddy\2026-09-02-17-21-42\postgresql-course\examples\docker\</code></td></tr>
+<tr><td>主库数据卷</td><td><code>docker_pg_primary_data</code></td></tr>
+<tr><td>从库数据卷</td><td><code>docker_pg_standby_data</code></td></tr>
+<tr><td>WAL 归档卷</td><td><code>docker_pg_archive</code></td></tr>
+<tr><td>网络</td><td><code>docker_pgnet</code></td></tr>
+<tr><td>配置文件</td><td><code>...\docker\conf\{postgresql.conf, pg_hba.conf}</code></td></tr>
+<tr><td>初始化 SQL</td><td><code>...\docker\initdb\00-init.sql</code></td></tr>
+</tbody></table><h3 id="h3-34">3.3 pyflink-tutorial 项目</h3><table>
+<thead><tr><th>内容</th><th>路径</th></tr></thead>
+<tbody>
+<tr><td>项目目录</td><td><code>C:\Users\wzm\WorkBuddy\2026-09-20-09-28-01\pyflink-tutorial\</code></td></tr>
+<tr><td>Dockerfile</td><td><code>...\pyflink-tutorial\docker\pyflink-image\Dockerfile</code></td></tr>
+<tr><td>checkpoint 卷</td><td><code>pyflink-tutorial_flink-checkpoints</code></td></tr>
+<tr><td>savepoint 卷</td><td><code>pyflink-tutorial_flink-savepoints</code></td></tr>
+<tr><td>Kafka 数据卷</td><td><code>pyflink-tutorial_kafka-data</code></td></tr>
+<tr><td>MySQL 数据卷</td><td><code>pyflink-tutorial_mysql-data</code></td></tr>
+<tr><td>网络</td><td><code>pyflink-tutorial_flink-net</code></td></tr>
+</tbody></table><hr><h2 id="h2-35">4. 常用命令速查</h2><h3 id="h3-36">4.1 全局</h3><pre><span class="lang-tag">bash</span><code><span class="kw">docker</span> info                  <span class="cm"># Docker 引擎信息（判断是否在运行）</span>
+<span class="kw">docker</span> version               <span class="cm"># 客户端/服务端版本</span>
+<span class="kw">docker</span> system df             <span class="cm"># 磁盘占用总览</span>
+<span class="kw">docker</span> system df -v          <span class="cm"># 详细占用（含卷）</span>
+<span class="kw">docker</span> system prune -af      <span class="cm"># ⚠️ 清理所有未使用镜像/容器/网络</span></code></pre><h3 id="h3-37">4.2 容器</h3><pre><span class="lang-tag">bash</span><code><span class="kw">docker</span> ps                    <span class="cm"># 运行中的容器</span>
+<span class="kw">docker</span> ps -a                 <span class="cm"># 所有容器（含已停止）</span>
+<span class="kw">docker</span> logs -f &lt;容器名&gt;       <span class="cm"># 跟踪日志</span>
+<span class="kw">docker</span> exec -it &lt;容器名&gt; <span class="kw">bash</span> <span class="cm"># 进入容器</span>
+<span class="kw">docker</span> stats                 <span class="cm"># 实时资源占用</span>
+<span class="kw">docker</span> inspect &lt;容器名&gt;       <span class="cm"># 详细配置</span>
+<span class="kw">docker</span> restart &lt;容器名&gt;       <span class="cm"># 重启</span></code></pre><h3 id="h3-38">4.3 镜像</h3><pre><span class="lang-tag">bash</span><code><span class="kw">docker</span> images                <span class="cm"># 所有镜像</span>
+<span class="kw">docker</span> rmi &lt;镜像ID&gt;           <span class="cm"># 删除镜像</span>
+<span class="kw">docker</span> image prune -a        <span class="cm"># 清理未使用镜像</span></code></pre><h3 id="h3-39">4.4 卷</h3><pre><span class="lang-tag">bash</span><code><span class="kw">docker</span> volume <span class="kw">ls</span>                                    <span class="cm"># 所有卷</span>
+<span class="kw">docker</span> volume inspect &lt;卷名&gt; --format &<span class="cm">#x27;{{.Mountpoint}}&#x27;  # 卷在宿主机的路径</span>
+<span class="kw">docker</span> volume <span class="kw">rm</span> &lt;卷名&gt;                              <span class="cm"># 删除卷（⚠️ 数据没）</span></code></pre><h3 id="h3-40">4.5 compose</h3><pre><span class="lang-tag">bash</span><code><span class="cm"># 必须在含 docker-compose.yml 的目录下执行</span>
+<span class="kw">docker</span> <span class="kw">compose</span> up -d                 <span class="cm"># 启动</span>
+<span class="kw">docker</span> <span class="kw">compose</span> ps                    <span class="cm"># 状态</span>
+<span class="kw">docker</span> <span class="kw">compose</span> logs -f &lt;服务名&gt;       <span class="cm"># 日志</span>
+<span class="kw">docker</span> <span class="kw">compose</span> stop &lt;服务名&gt;          <span class="cm"># 停止单个</span>
+<span class="kw">docker</span> <span class="kw">compose</span> restart &lt;服务名&gt;       <span class="cm"># 重启单个</span>
+<span class="kw">docker</span> <span class="kw">compose</span> down                  <span class="cm"># 停止 + 删容器</span>
+<span class="kw">docker</span> <span class="kw">compose</span> down -v               <span class="cm"># 停止 + 删容器 + 删卷（⚠️）</span>
+<span class="kw">docker</span> <span class="kw">compose</span> config                <span class="cm"># 校验并展开配置</span>
+<span class="kw">docker</span> <span class="kw">compose</span> config --services     <span class="cm"># 列出服务</span>
+<span class="kw">docker</span> <span class="kw">compose</span> <span class="kw">ls</span> -a                 <span class="cm"># 列出所有 compose 项目</span></code></pre><hr><h2 id="h2-41">5. 启动方式汇总</h2><h3 id="h3-42">5.1 前提：Docker Desktop 要开着</h3><p>本机 <code>AutoStart: false</code>，<strong>开机不会自启</strong>。两种方式：</p><pre><span class="lang-tag">powershell</span><code># 方式一：图形界面
+# 开始菜单搜 &quot;Docker Desktop&quot; 点开
+
+# 方式二：命令行
+Start-Process &quot;C:\Program Files\Docker\Docker\Docker Desktop.exe&quot;</code></pre><p>等 60~90 秒，用 <code>docker info</code> 确认就绪。</p><blockquote>想让它开机自启：Docker Desktop → Settings → General → 勾选 &quot;Start Docker Desktop when you sign in&quot;。</blockquote><h3 id="h3-43">5.2 启动 pg-course</h3><pre><span class="lang-tag">bash</span><code><span class="kw">cd</span> <span class="st">&quot;C:/Users/wzm/WorkBuddy/2026-09-02-17-21-42/postgresql-course/examples/docker&quot;</span>
+<span class="kw">docker</span> <span class="kw">compose</span> up -d
+<span class="kw">docker</span> <span class="kw">compose</span> ps</code></pre><h3 id="h3-44">5.3 启动 pyflink-tutorial</h3><pre><span class="lang-tag">bash</span><code><span class="kw">cd</span> <span class="st">&quot;C:/Users/wzm/WorkBuddy/2026-09-20-09-28-01/pyflink-tutorial&quot;</span>
+<span class="kw">bash</span> scripts/docker_up.sh                       <span class="cm"># 只起 Flink</span>
+<span class="kw">bash</span> scripts/docker_up.sh --with-connectors     <span class="cm"># 加 Kafka + MySQL</span></code></pre><h3 id="h3-45">5.4 全部停掉</h3><pre><span class="lang-tag">bash</span><code><span class="kw">cd</span> <span class="st">&quot;C:/Users/wzm/WorkBuddy/2026-09-02-17-21-42/postgresql-course/examples/docker&quot;</span> &amp;&amp; <span class="kw">docker</span> <span class="kw">compose</span> down
+<span class="kw">cd</span> <span class="st">&quot;C:/Users/wzm/WorkBuddy/2026-09-20-09-28-01/pyflink-tutorial/docker&quot;</span> &amp;&amp; <span class="kw">docker</span> <span class="kw">compose</span> --profile connectors --profile sql down</code></pre><p>或者直接退出 Docker Desktop（容器不会丢，只是停止）。</p><hr><h2 id="h2-46">6. 故障排查</h2><h3 id="h3-47">6.1 wsl.exe 被安全策略拦截</h3><p><strong>症状</strong>：</p><pre><span class="lang-tag">text</span><code>PROGRAM BLOCKED BY SECURITY POLICY
+The sandbox prevented a program on the configured Program Blacklist from starting:
+  - wsl.exe (C:\Windows\System32\wsl.exe)</code></pre><p>Docker Desktop 启动时必须调用 <code>wsl.exe</code>（WSL2 后端），被拦就会<strong>启动失败</strong>——表现为双击 Docker Desktop 后进程闪一下就没了，<code>docker info</code> 报：</p><pre><span class="lang-tag">text</span><code>failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine</code></pre><p><strong>解决</strong>：打开 <strong>安全中心 → 命令安全 → 程序黑名单</strong>，把 <code>wsl.exe</code> 移除。</p><blockquote>这个拦截无法从命令侧绕过，必须手动改配置。</blockquote><h3 id="h3-48">6.2 容器起不来 / 提示 invalid rootfs</h3><p><strong>原因</strong>：在 <code>~/.docker/daemon.json</code> 里设了 <code>data-root</code>。WSL2 后端不支持这个参数。</p><p><strong>解决</strong>：删掉 <code>daemon.json</code> 里的 <code>data-root</code>，重启 Docker Desktop。</p><p>正确的 <code>daemon.json</code>（<strong>不含 data-root</strong>）：</p><pre><span class="lang-tag">json</span><code>{
+  <span class="st">&quot;builder&quot;</span>: {
+    <span class="st">&quot;gc&quot;</span>: {
+      <span class="st">&quot;defaultKeepStorage&quot;</span>: <span class="st">&quot;20GB&quot;</span>,
+      <span class="st">&quot;enabled&quot;</span>: true
+    }
+  },
+  <span class="st">&quot;experimental&quot;</span>: false
+}</code></pre><h3 id="h3-49">6.3 改项目名后数据&quot;丢了&quot;</h3><p><strong>原因</strong>：默认卷名是 <code>&lt;项目名&gt;_&lt;卷key&gt;</code>，改项目名 = 指向新空卷。</p><p><strong>解决</strong>：用 <code>volumes.&lt;key&gt;.name</code> 锁死原卷名。详见 <a href="#17-项目改名说明2026-09-20-完成">1.7</a>。</p><p><strong>已经&quot;丢&quot;了的补救</strong>：原卷其实还在，只是没被使用。</p><pre><span class="lang-tag">bash</span><code><span class="kw">docker</span> volume <span class="kw">ls</span>                              <span class="cm"># 找到原来的卷名</span>
+<span class="kw">docker</span> run --rm -v 旧卷名:/from -v 新卷名:/to alpine \
+  sh -c &quot;<span class="kw">cd</span> /from &amp;&amp; cp -av . /to&quot;</code></pre><h3 id="h3-50">6.4 PyFlink 报 <code>python: command not found</code></h3><p><strong>原因</strong>：用了官方 <code>flink:1.20</code> 镜像（没有 Python）。</p><p><strong>解决</strong>：用本项目的自定义 Dockerfile 构建镜像。检查：</p><pre><span class="lang-tag">bash</span><code><span class="kw">docker</span> <span class="kw">compose</span> exec jobmanager <span class="kw">python</span> --version      <span class="cm"># 期望 Python 3.11.x</span>
+<span class="kw">docker</span> <span class="kw">compose</span> exec jobmanager <span class="kw">python</span> -c <span class="st">&quot;import pyflink; print(pyflink.__version__)&quot;</span></code></pre><h3 id="h3-51">6.5 PyFlink 中文乱码</h3><p><strong>原因</strong>：JVM 默认字符集不是 UTF-8。</p><p><strong>解决</strong>：Dockerfile 里已加 <code>ENV JAVA_TOOL_OPTIONS=&quot;-Dfile.encoding=UTF-8&quot;</code>。手动验证：</p><pre><span class="lang-tag">bash</span><code><span class="kw">docker</span> <span class="kw">compose</span> exec jobmanager env | grep JAVA_TOOL_OPTIONS</code></pre><h3 id="h3-52">6.6 端口冲突</h3><p>本机已占用端口：</p><table>
+<thead><tr><th>端口</th><th>被谁占</th></tr></thead>
+<tbody>
+<tr><td>5432</td><td>pg-primary</td></tr>
+<tr><td>5433</td><td>pg-standby</td></tr>
+<tr><td>8081</td><td>pyflink-jobmanager</td></tr>
+<tr><td>8082</td><td>pyflink-kafka-ui</td></tr>
+<tr><td>9092</td><td>pyflink-kafka</td></tr>
+<tr><td>13306</td><td>pyflink-mysql（<strong>避让</strong> 3306）</td></tr>
+<tr><td>3306</td><td>⚠️ <strong>本机原生 MySQL 服务</strong>（Windows 服务 <code>mysqld</code>），非容器</td></tr>
+</tbody></table><blockquote><strong>3306 是本机的既有 MySQL 服务</strong>，所以容器的 MySQL 映射到 <strong>13306</strong>。 容器内部仍然是 3306，Flink 容器通过服务名 <code>mysql:3306</code> 访问，不受影响。</blockquote><p><strong>启动前先查</strong>：</p><pre><span class="lang-tag">bash</span><code><span class="kw">docker</span> ps --format <span class="st">&quot;table {{.Names}}\t{{.Ports}}&quot;</span>
+netstat -ano | findstr <span class="st">&quot;:5432&quot;</span>      <span class="cm"># Windows 查端口占用</span></code></pre><p>冲突了就改 compose 里的端口映射，比如 <code>&quot;15432:5432&quot;</code>。</p><h3 id="h3-53">6.7 Docker 磁盘满了</h3><pre><span class="lang-tag">bash</span><code><span class="kw">docker</span> system df              <span class="cm"># 先看占用</span>
+<span class="kw">docker</span> system df -v           <span class="cm"># 看细节（哪个卷/镜像大）</span>
+
+<span class="kw">docker</span> container prune        <span class="cm"># 清理已停止容器</span>
+<span class="kw">docker</span> image prune -a         <span class="cm"># 清理未使用镜像</span>
+<span class="kw">docker</span> builder prune          <span class="cm"># 清理构建缓存</span>
+<span class="kw">docker</span> volume prune           <span class="cm"># ⚠️ 清理未使用卷（会删数据！先确认）</span></code></pre><h3 id="h3-54">6.8 查看启动失败原因</h3><pre><span class="lang-tag">powershell</span><code># 日志目录
+$env:LOCALAPPDATA\Docker\log\host\
+├── Docker Desktop.exe.log      # 主程序
+├── com.docker.backend.exe.log  # 后端引擎
+├── monitor.log                 # 监控
+├── httpproxy.log               # 网络代理
+└── DockerCli.exe.log           # CLI 操作
+
+# 看最新日志
+Get-ChildItem &quot;$env:LOCALAPPDATA\Docker\log\host\&quot; | Sort-Object LastWriteTime -Descending | Select-Object -First 5
+Get-Content &quot;$env:LOCALAPPDATA\Docker\log\host\Docker Desktop.exe.log&quot; -Tail 30</code></pre><h3 id="h3-55">6.9 构建镜像时 JAR 下载 404</h3><p><strong>症状</strong>：<code>docker compose build</code> 输出里出现</p><pre><span class="lang-tag">text</span><code>&gt;&gt;&gt; 下载 mysql-connector-j-8.0.33.jar
+curl: (22) The requested URL returned error: 404</code></pre><p><strong>原因</strong>：Maven 坐标写错了。MySQL 官方驱动在 Maven Central 上的 groupId 是 <strong><code>com.mysql</code></strong>，不是 <code>mysql</code>：</p><table>
+<thead><tr><th>❌ 错误</th><th>✅ 正确</th></tr></thead>
+<tbody>
+<tr><td><code>mysql/mysql-connector-j/8.0.33/...</code></td><td><code>com/mysql/mysql-connector-j/8.0.33/...</code></td></tr>
+</tbody></table><p>判断方法：直接在浏览器打开完整 URL，404 就是坐标错，能下载就是对的。</p><p><strong>兜底方案</strong>：JAR 下载失败不会阻塞构建（Dockerfile 里做了容错）。手动下载后放进宿主机：</p><pre><span class="lang-tag">text</span><code>C:\Users\wzm\WorkBuddy\2026-09-20-09-28-01\pyflink-tutorial\jars\</code></pre><p>这个目录挂载到容器的 <code>/opt/flink/lib/connectors</code>，<strong>放进去重启容器就生效，不用重新构建镜像</strong>。</p><h3 id="h3-56">6.10 构建时校验脚本把自己卡死</h3><p><strong>症状</strong>：</p><pre><span class="lang-tag">text</span><code>[7/7] RUN python --version &amp;&amp; python -c &quot;import pyflink; print(pyflink.__version__)&quot; &amp;&amp; java -version
+AttributeError: module &#x27;pyflink&#x27; has no attribute &#x27;__version__&#x27;
+ERROR: process did not complete successfully: exit code: 1</code></pre><p><strong>原因</strong>：<code>pyflink</code> 模块<strong>没有</strong> <code>__version__</code> 属性 —— 这是写校验代码时想当然了。更坑的是，</p><p>这个校验写在 <code>RUN</code> 里且用了 <code>&amp;&amp;</code>，校验一挂整个镜像构建就失败，前面 10 分钟的 pip 安装全白费。</p><p><strong>正确写法</strong>：查已安装的<strong>分发包</strong>版本，而不是模块属性：</p><pre><span class="lang-tag">dockerfile</span><code>RUN python -c &quot;from importlib.metadata import version; print(version(&#x27;apache-flink&#x27;))&quot;
+# 1.20.0</code></pre><p><strong>教训</strong>：构建期做自检是好事，但<strong>校验代码本身必须先在交互环境里验证过</strong>。</p><p>至少在自检外面套上 <code>|| true</code>，让它只警告不阻塞。</p><h3 id="h3-57">6.11 Kafka 镜像拉不下来（免费加速节点繁忙）</h3><p><strong>症状</strong>：</p><pre><span class="lang-tag">text</span><code>Image bitnami/kafka:3.7 Error error from registry: 免费节点当前繁忙，请稍后重试。
+如果需要稳定高速的镜像拉取服务，可使用轩辕镜像专业版…</code></pre><p><strong>原因</strong>：<code>bitnami/kafka</code> 这个仓库在国内免费加速源上常年拥堵（实测连试 5 个标签全失败）。</p><p><strong>解决：换 Apache 官方镜像</strong></p><pre><span class="lang-tag">yaml</span><code><span class="nm">kafka</span>:
+  <span class="nm">image</span>: apache/kafka:3.7.0     <span class="cm"># ← 而不是 bitnami/kafka:3.7</span></code></pre><p>Apache Kafka 现在有官方 Docker 镜像，实测<strong>能正常拉下来</strong>（<code>apache/kafka:3.7.0</code> 和 <code>:latest</code> 都可以）。</p><p><strong>注意环境变量名完全不同</strong>，不能直接照搬 Bitnami 的配置：</p><table>
+<thead><tr><th>项</th><th>Bitnami</th><th>Apache 官方</th></tr></thead>
+<tbody>
+<tr><td>节点 ID</td><td><code>KAFKA_CFG_NODE_ID</code></td><td><code>KAFKA_NODE_ID</code></td></tr>
+<tr><td>角色</td><td><code>KAFKA_CFG_PROCESS_ROLES</code></td><td><code>KAFKA_PROCESS_ROLES</code></td></tr>
+<tr><td>监听器</td><td><code>KAFKA_CFG_LISTENERS</code></td><td><code>KAFKA_LISTENERS</code></td></tr>
+<tr><td>数据目录</td><td><code>/bitnami/kafka</code></td><td><code>/var/lib/kafka/data</code></td></tr>
+<tr><td>工具脚本</td><td><code>kafka-topics.sh</code>（在 PATH）</td><td><code>/opt/kafka/bin/kafka-topics.sh</code></td></tr>
+</tbody></table><p>还需要显式给一个 <code>CLUSTER_ID</code>（KRaft 首次格式化用）。</p><p><strong>被加速源卡住的其他镜像</strong>：<code>provectuslabs/kafka-ui</code> 实测能拉；<code>mysql:8.0</code> 实测能拉。</p><p>真拉不动时，用 <code>docker pull</code> 单个重试几次，通常能过。</p><h3 id="h3-58">6.12 端口被本机原生服务占用</h3><p><strong>症状</strong>：</p><pre><span class="lang-tag">text</span><code>Error response from daemon: ports are not available:
+exposing port TCP 0.0.0.0:3306 -&gt; 127.0.0.1:0:
+listen tcp 0.0.0.0:3306: bind: Only one usage of each socket address is normally permitted.</code></pre><p><strong>诊断</strong>：</p><pre><span class="lang-tag">bash</span><code>netstat -ano | findstr <span class="st">&quot;:3306&quot;</span>
+<span class="cm">#   TCP    0.0.0.0:3306    LISTENING    7744</span></code></pre><p>拿到 PID 后查是什么进程（PowerShell）：</p><pre><span class="lang-tag">powershell</span><code>Get-Process -Id 7744 | Select-Object Id, ProcessName, Path | Format-List</code></pre><p>本机结果：<code>mysqld</code> —— <strong>Windows 上装了原生 MySQL 服务</strong>，常年占着 3306。</p><p><strong>解决</strong>：容器映射到别的端口，别去动用户的原生服务。</p><pre><span class="lang-tag">yaml</span><code><span class="nm">mysql</span>:
+  <span class="nm">ports</span>:
+    - <span class="st">&quot;13306:3306&quot;</span>     <span class="cm"># 宿主机 13306 → 容器 3306</span></code></pre><p>改完 <code>docker compose --profile connectors up -d</code> 即可。宿主机连 <code>localhost:13306</code>，</p><p>容器之间仍走 <code>mysql:3306</code>，互不影响。</p><h3 id="h3-59">6.13 软链没生效导致 Kafka 连接器找不到</h3><p>见 <a href="#213-连接器-jar-的正确放置方式重要">2.13 连接器 JAR 的正确放置方式</a>。</p><p>如果改了 JAR 但容器里 <code>lib/</code> 顶层没有对应软链，重启即可：</p><pre><span class="lang-tag">bash</span><code><span class="kw">docker</span> <span class="kw">compose</span> restart jobmanager taskmanager</code></pre><h3 id="h3-60">6.14 重要提醒：别信 Git Bash 的管道</h3><p>在 Git Bash 里，管道会把 UTF-8 中文当二进制处理，<code>grep</code> / <code>tail</code> 可能报 <code>Binary file matches</code> 或显示成空。<strong>这会让你误判命令结果</strong>。</p><pre><span class="lang-tag">bash</span><code><span class="cm"># ❌ 不可靠</span>
+<span class="kw">docker</span> exec pg-primary psql -U postgres -c <span class="st">&quot;SELECT ...&quot;</span> | grep 中文
+
+<span class="cm"># ✅ 可靠：重定向到文件再读</span>
+<span class="kw">docker</span> exec pg-primary psql -U postgres -c <span class="st">&quot;SELECT ...&quot;</span> &gt; /tmp/out.txt 2&gt;&amp;1
+<span class="cm"># 然后用 Read 工具读，或：</span>
+<span class="kw">python</span> -c &quot;import io; print(io.open(&<span class="cm">#x27;/tmp/out.txt&#x27;, encoding=&#x27;utf-8&#x27;).read())&quot;</span></code></pre><hr><h2 id="h2-61">附录：本机实测记录（2026-09-20）</h2><table>
+<thead><tr><th>项</th><th>结果</th></tr></thead>
+<tbody>
+<tr><td>Docker Desktop 版本</td><td>4.89.0</td></tr>
+<tr><td>原数据位置</td><td><code>C:\Users\wzm\AppData\Local\Docker\wsl\</code>（6.15 GB）</td></tr>
+<tr><td>新数据位置</td><td><code>D:\DockerData\</code>（已复制）</td></tr>
+<tr><td>PostgreSQL 版本</td><td>16.15（Debian 13）</td></tr>
+<tr><td>主从复制状态</td><td><code>streaming</code> / <code>async</code>，<code>sent_lsn == replay_lsn</code></td></tr>
+<tr><td>数据一致性</td><td><code>orders_202608</code> 主从都是 41134 行 ✓</td></tr>
+<tr><td>shop 库规模</td><td>37 张表 / 447 MB，<code>payments</code> 17.4 万行</td></tr>
+<tr><td>从库只读验证</td><td>写入被拒（<code>read-only transaction</code>）✓</td></tr>
+<tr><td>WAL 归档</td><td>75 个成功；507 次失败是初始化期历史遗留</td></tr>
+<tr><td><strong>PyFlink 镜像</strong></td><td>自定义 <code>pyflink-tutorial:1.20</code>（Python 3.11 + PyFlink 1.20.0）</td></tr>
+<tr><td>镜像内依赖</td><td>py4j 0.10.9.7 / apache-beam 2.48.0 / pandas 2.3.3</td></tr>
+<tr><td>Flink 集群版本</td><td>1.20.5，1 个 TaskManager，4 个 slot</td></tr>
+<tr><td>连接器 JAR</td><td>Kafka 3.4.0-1.20 / JDBC 3.2.0-1.19 / MySQL 8.0.33</td></tr>
+<tr><td><strong>示例测试结果</strong></td><td><strong>8 / 8 全部通过</strong>（示例 06 三段连接器均走真实路径）</td></tr>
+<tr><td>Kafka 镜像</td><td><code>apache/kafka:3.7.0</code>（<code>bitnami/kafka</code> 加速源拉不动）</td></tr>
+<tr><td>MySQL 端口</td><td>宿主机 13306 → 容器 3306（3306 被本机原生 mysqld 占用）</td></tr>
+</tbody></table><h3 id="h3-62">本次踩坑清单（按发生顺序）</h3><table>
+<thead><tr><th>#</th><th>问题</th><th>根因</th><th>解法</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>MySQL 驱动 404</td><td>Maven 坐标写成 <code>mysql/...</code></td><td>改 <code>com/mysql/mysql-connector-j/...</code></td></tr>
+<tr><td>2</td><td>Kafka 连接器 404</td><td><code>3.2.0-1.20</code> 版本不存在</td><td>用 <code>3.4.0-1.20</code></td></tr>
+<tr><td>3</td><td>构建失败</td><td>校验用了 <code>pyflink.__version__</code>（不存在）</td><td>改 <code>importlib.metadata.version()</code></td></tr>
+<tr><td>4</td><td>镜像里 JAR 被覆盖</td><td><code>jars/</code> 空目录 bind mount 盖住镜像内容</td><td>从镜像 <code>docker cp</code> 出来填充</td></tr>
+<tr><td>5</td><td>构建期 JAR 下载失败不报错</td><td><code>fetch()</code> 用 `\</td><td>\</td><td>echo` 吞掉了非零退出码</td><td>改成 if/else 明确提示</td></tr>
+<tr><td>6</td><td>加速源拉不动 Kafka</td><td><code>bitnami/kafka</code> 免费节点常年繁忙</td><td>换 <code>apache/kafka:3.7.0</code></td></tr>
+<tr><td>7</td><td>3306 端口冲突</td><td>本机原生 MySQL 服务占用</td><td>容器映射到 13306</td></tr>
+<tr><td>8</td><td>示例连不上服务</td><td>容器内 <code>localhost</code> 指向容器自己</td><td>环境变量 + compose 服务名</td></tr>
+<tr><td>9</td><td>Flink 报 <code>Encountered &quot;f&quot;</code></td><td>f-string 三引号 SQL 里嵌套了 <code>f&quot;...&quot;</code></td><td>内层去掉 f，用单引号</td></tr>
+<tr><td>10</td><td>Kafka 类找不到</td><td>JAR 在 <code>lib/connectors/</code> 子目录</td><td>启动脚本软链到 <code>lib/</code> 顶层</td></tr>
+<tr><td>11</td><td><code>add_source</code> 签名不存在</td><td>PyFlink 1.20 API 变更</td><td>改用 <code>env.from_source(...)</code></td></tr>
+<tr><td>12</td><td>示例 08 批量测试挂住</td><td>Kafka 流作业常驻不退出</td><td>批量脚本自动加 <code>--local</code></td></tr>
+</tbody></table>
+</main>
+<script>
+const links=[...document.querySelectorAll('#side a')];
+const targets=links.map(a=>document.querySelector(a.getAttribute('href'))).filter(Boolean);
+function onScroll(){
+  let cur=0;
+  targets.forEach((t,i)=>{ if(t.getBoundingClientRect().top<120) cur=i; });
+  links.forEach((a,i)=>a.classList.toggle('active',i===cur));
+}
+document.addEventListener('scroll',onScroll,{passive:true});
+onScroll();
+</script>
+</body>
+</html>

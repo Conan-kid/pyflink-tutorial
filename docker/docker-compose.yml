@@ -1,0 +1,222 @@
+# ============================================================
+# PyFlink 学习环境 · Docker Compose
+# ============================================================
+# 项目名：pyflink-tutorial（见末尾 name 字段）
+#
+# 用法：
+#   cd pyflink-tutorial/docker
+#   docker compose build              # 首次必须构建自定义镜像（装 Python + PyFlink）
+#   docker compose up -d              # 启动 Flink 集群
+#   docker compose --profile connectors up -d   # 额外起 Kafka + MySQL
+#   docker compose logs -f jobmanager # 看 JobManager 日志
+#   docker compose down               # 停止（保留数据）
+#   docker compose down -v            # 停止并删除数据卷（慎用）
+#
+# 启动后访问：
+#   Flink Web UI    http://localhost:8081
+#   Kafka UI        http://localhost:8082
+#   MySQL           localhost:13306 (root / root123456)   ← 避让本机原生 MySQL 的 3306
+#
+# 作业提交：
+#   docker compose exec jobmanager python /opt/flink/examples/01_hello_wordcount.py
+# ============================================================
+name: pyflink-tutorial
+
+x-flink-common: &flink-common
+  build:
+    context: ./pyflink-image
+    dockerfile: Dockerfile
+  image: pyflink-tutorial:1.20
+  # 启动前把 lib/connectors/*.jar 软链到 lib/ 顶层（Flink 只扫描 lib/ 顶层），
+  # 否则 PyFlink 的 Kafka/DataStream 连接器会报 "Could not found the Java class"
+  entrypoint: ["/opt/flink/link-connectors.sh"]
+  volumes: &flink-volumes
+    - ../examples:/opt/flink/examples
+    - ../scripts:/opt/flink/scripts
+    - ../data:/opt/flink/data
+    - ../jars:/opt/flink/lib/connectors
+    - flink-checkpoints:/opt/flink/checkpoints
+    - flink-savepoints:/opt/flink/savepoints
+  # 示例代码用这几个变量决定连哪台 Kafka / MySQL / PostgreSQL。
+  # 容器内必须用 compose 服务名（kafka / mysql），用 localhost 会连到容器自己。
+  # PostgreSQL 是【另一个 compose 项目】（pg-course），网络隔离，无法用服务名解析，
+  # 所以走 host.docker.internal 回到宿主机、再从宿主机映射端口进 pg 容器。
+  # 前提：pg 容器的端口已映射到宿主机（5432 / 5433），已确认可用。
+  environment: &flink-conn-env
+    KAFKA_BOOTSTRAP: ${KAFKA_BOOTSTRAP:-kafka:9092}
+    MYSQL_HOST: mysql
+    MYSQL_PORT: "3306"
+    PG_HOST: ${PG_HOST:-host.docker.internal}
+    PG_PORT: ${PG_PORT:-5432}
+    PG_DB: ${PG_DB:-shop}
+    PG_USER: ${PG_USER:-shop}
+    # ⚠️ 真实密码放根目录 .env（已 gitignore），不要写死在这里
+    PG_PASSWORD: ${PG_PASSWORD:-shop123}
+    CDC_USER: ${CDC_USER:-flink_cdc}
+    CDC_PASSWORD: ${CDC_PASSWORD:-cdc123}
+    CDC_SLOT: ${CDC_SLOT:-flink_users_slot}
+    CDC_PUBLICATION: ${CDC_PUBLICATION:-flink_cdc_pub}
+    CDC_SNAPSHOT_MODE: ${CDC_SNAPSHOT_MODE:-initial}
+  # 让 host.docker.internal 在 Linux 容器里也能解析（Windows/Mac 的 Docker Desktop 已内置，
+  # 这里显式声明一次更保险，也方便以后换 Linux 宿主机）
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
+services:
+
+  # ================= JobManager =================
+  jobmanager:
+    <<: *flink-common
+    container_name: pyflink-jobmanager
+    ports:
+      - "8081:8081"
+    command: jobmanager
+    environment:
+      <<: *flink-conn-env
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: jobmanager
+        state.checkpoints.dir: file:///opt/flink/checkpoints
+        state.savepoints.dir: file:///opt/flink/savepoints
+        execution.checkpointing.interval: 10s
+        rest.flamegraph.enabled: true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/overview"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      - flink-net
+
+  # ================= TaskManager =================
+  taskmanager:
+    <<: *flink-common
+    container_name: pyflink-taskmanager
+    depends_on:
+      jobmanager:
+        condition: service_healthy
+    command: taskmanager
+    environment:
+      <<: *flink-conn-env
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 4
+        taskmanager.memory.process.size: 2048m
+    networks:
+      - flink-net
+
+  # ================= Flink SQL 客户端 =================
+  # 交互式探索：docker compose --profile sql run --rm sql-client
+  sql-client:
+    <<: *flink-common
+    container_name: pyflink-sql-client
+    depends_on:
+      jobmanager:
+        condition: service_healthy
+    command: >
+      /bin/bash -c "./bin/sql-client.sh embedded -s jobmanager:8081"
+    environment:
+      <<: *flink-conn-env
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: jobmanager
+    stdin_open: true
+    tty: true
+    profiles:
+      - sql
+    networks:
+      - flink-net
+
+  # ================= Kafka（KRaft 模式，无需 Zookeeper） =================
+  # 用 Apache 官方镜像（bitnami 在国内加速源上常年繁忙，拉不动）
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: pyflink-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      # --- KRaft 模式 ---
+      - KAFKA_NODE_ID=1
+      - KAFKA_PROCESS_ROLES=broker,controller
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      # --- 监听器 ---
+      - KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      # --- 单节点开发环境 ---
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
+      - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
+      - KAFKA_AUTO_CREATE_TOPICS_ENABLE=true
+      - CLUSTER_ID=5L6g3nShT-eMCtK--X86sw
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 40s
+    profiles:
+      - connectors
+    networks:
+      - flink-net
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: pyflink-kafka-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8082:8080"
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=local
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
+    profiles:
+      - connectors
+    networks:
+      - flink-net
+
+  # ================= MySQL =================
+  mysql:
+    image: mysql:8.0
+    container_name: pyflink-mysql
+    # ⚠️ 本机 3306 已被原生 MySQL 服务占用（Windows 服务 mysqld），
+    #    所以映射到宿主机 13306，避免冲突。容器内部仍是 3306。
+    ports:
+      - "13306:3306"
+    environment:
+      # ⚠️ 密码走环境变量，默认值仅供本地演示。
+      #    真实部署请在项目根目录建 .env（已 gitignore）覆盖：
+      #      MYSQL_ROOT_PASSWORD=你的强密码
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-root123456}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-flink_demo}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ../data/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p\"$$MYSQL_ROOT_PASSWORD\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    profiles:
+      - connectors
+    networks:
+      - flink-net
+
+volumes:
+  flink-checkpoints:
+  flink-savepoints:
+  kafka-data:
+  mysql-data:
+
+networks:
+  flink-net:
+    driver: bridge
