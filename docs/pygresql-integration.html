@@ -73,14 +73,14 @@ strong{font-weight:500;color:var(--tx)}
 <body id="top">
 <nav id="side">
   <h1>PyFlink × PostgreSQL</h1>
-  <div class="sub">JDBC 连接器双向读写</div>
-  <a href="#top" style="font-weight:500;color:var(--tx)">PyFlink × PostgreSQL</a><a href="#h2-0" class="">0. 先看结论</a><a href="#h2-1" class="">1. 环境准备（本机实测路径）</a><a href="#h3-2" class="lv2">1.1 网络拓扑（关键，务必先搞懂）</a><a href="#h3-3" class="lv2">1.2 装 PostgreSQL JDBC 驱动</a><a href="#h3-4" class="lv2">1.3 环境变量（已在 compose 注入）</a><a href="#h2-5" class="">2. 建表：JDBC Sink 不会自动建表</a><a href="#h2-6" class="">3. 四种核心操作</a><a href="#h3-7" class="lv2">3.1 pg → Flink：JDBC Source 读数据</a><a href="#h3-8" class="lv2">3.2 Flink → pg：JDBC Sink 写数据</a><a href="#h3-9" class="lv2">3.3 pg 当维表：Lookup Join（最实用的场景）</a><a href="#h3-10" class="lv2">3.4 汇总：一段完整的端到端脚本</a><a href="#h3-11" class="lv2">3.5 CDC：真正实时的 pg 变更捕获</a><a href="#h2-12" class="">4. 踩坑清单（实测，含血泪）</a><a href="#h3-13" class="lv2">4.1 【最大的坑】流模式不能对普通字段 ORDER BY</a><a href="#h3-14" class="lv2">4.2 两个 compose 项目的网络是隔离的</a><a href="#h3-15" class="lv2">4.3 JDBC Sink 不建表</a><a href="#h3-16" class="lv2">4.4 忘了加 `extra_hosts` 时 Linux 上解析失败</a><a href="#h3-17" class="lv2">4.5 分区表 INSERT 必须带分区键</a><a href="#h3-18" class="lv2">4.6 从库是只读的</a><a href="#h3-19" class="lv2">4.7 连接池/并行度打爆 pg</a><a href="#h3-20" class="lv2">4.8 参数化时别用 f-string 嵌 f-string</a><a href="#h3-21" class="lv2">4.9 `NUMERIC` 精度要对齐</a><a href="#h2-22" class="">5. 典型业务场景</a><a href="#h3-23" class="lv2">5.1 实时大屏：Kafka 订单流 + pg 维表 + pg 结果表</a><a href="#h3-24" class="lv2">5.2 离线报表预计算</a><a href="#h3-25" class="lv2">5.3 异构同步：pg → MySQL / Kafka</a><a href="#h3-26" class="lv2">5.4 实时风控（本项目示例 08 的延伸）</a><a href="#h2-27" class="">6. 快速验证清单</a><a href="#h2-28" class="">7. 依赖清单</a><a href="#h2-29" class="">8. 相关文档</a>
+  <div class="sub">JDBC 联动 + CDC 实时捕获</div>
+  <a href="#top" style="font-weight:500;color:var(--tx)">PyFlink × PostgreSQL</a><a href="#h2-0" class="">0. 先看结论</a><a href="#h2-1" class="">1. 环境准备（本机实测路径）</a><a href="#h3-2" class="lv2">1.1 网络拓扑（关键，务必先搞懂）</a><a href="#h3-3" class="lv2">1.2 装 PostgreSQL JDBC 驱动</a><a href="#h3-4" class="lv2">1.3 环境变量（已在 compose 注入）</a><a href="#h2-5" class="">2. 建表：JDBC Sink 不会自动建表</a><a href="#h2-6" class="">3. 四种核心操作</a><a href="#h3-7" class="lv2">3.1 pg → Flink：JDBC Source 读数据</a><a href="#h3-8" class="lv2">3.2 Flink → pg：JDBC Sink 写数据</a><a href="#h3-9" class="lv2">3.3 pg 当维表：Lookup Join（最实用的场景）</a><a href="#h3-10" class="lv2">3.4 汇总：一段完整的端到端脚本</a><a href="#h3-11" class="lv2">3.5 CDC：真正实时的 pg 变更捕获</a><a href="#h2-12" class="">4. 踩坑清单（实测，含血泪）</a><a href="#h3-13" class="lv2">4.1 【最大的坑】流模式不能对普通字段 ORDER BY</a><a href="#h3-14" class="lv2">4.2 两个 compose 项目的网络是隔离的</a><a href="#h3-15" class="lv2">4.3 JDBC Sink 不建表</a><a href="#h3-16" class="lv2">4.4 忘了加 `extra_hosts` 时 Linux 上解析失败</a><a href="#h3-17" class="lv2">4.5 分区表 INSERT 必须带分区键</a><a href="#h3-18" class="lv2">4.6 从库是只读的</a><a href="#h3-19" class="lv2">4.7 连接池/并行度打爆 pg</a><a href="#h3-20" class="lv2">4.8 参数化时别用 f-string 嵌 f-string</a><a href="#h3-21" class="lv2">4.9 `NUMERIC` 精度要对齐</a><a href="#h2-22" class="">5. 典型业务场景</a><a href="#h3-23" class="lv2">5.1 实时大屏：Kafka 订单流 + pg 维表 + pg 结果表</a><a href="#h3-24" class="lv2">5.2 离线报表预计算</a><a href="#h3-25" class="lv2">5.3 异构同步：pg → MySQL / Kafka</a><a href="#h3-26" class="lv2">5.4 实时风控（本项目示例 08 的延伸）</a><a href="#h2-27" class="">6. 快速验证清单</a><a href="#h2-28" class="">7. 依赖清单</a><a href="#h2-29" class="">8. PostgreSQL CDC 实时变更捕获（进阶）</a><a href="#h3-30" class="lv2">8.0 先说结论（含未跑通的部分）</a><a href="#h3-31" class="lv2">8.1 CDC 和 JDBC 拉取的本质区别</a><a href="#h3-32" class="lv2">8.2 pg 侧五个必做前置（缺一个就报错）</a><a href="#h3-33" class="lv2">8.3 Flink 侧配置</a><a href="#h3-34" class="lv2">8.4 两个最隐蔽的坑</a><a href="#h3-35" class="lv2">8.5 sink 选择与 DELETE 问题</a><a href="#h3-36" class="lv2">8.6 验证脚本</a><a href="#h3-37" class="lv2">8.7 CDC 排查手册</a><a href="#h2-38" class="">9. 相关文档</a>
 </nav>
 <main id="main">
 <div class="hero">
-  <span class="tag">Flink 1.20 · PostgreSQL 16 · 全实测</span>
+  <span class="tag">Flink 1.20 · PostgreSQL 16 · 全部实测</span>
   <h1>PyFlink × PostgreSQL</h1>
-  <p class="lead">六类交互能力全解：JDBC 读写、维表关联、CDC 变更捕获、分区并行扫描、两阶段提交，含 9 条实测踩坑与完整验证清单。</p>
+  <p class="lead">从 JDBC 读写到 CDC 实时变更捕获：四种核心操作、五步前置配置、14 个实测踩坑。</p>
   <div class="meta">
     <span><b>8</b> 个可运行示例</span><span><b>12</b> 章完整讲解</span><span><b>零依赖</b> 即可试跑</span><span><b>Docker</b> 一键环境</span>
   </div>
@@ -91,10 +91,10 @@ strong{font-weight:500;color:var(--tx)}
 <tr><td><strong>pg → Flink</strong></td><td>批量扫描全表 / 增量按时间戳拉取</td><td><code>jdbc</code> (Source)</td><td>数据同步、离线分析、初始化加载</td></tr>
 <tr><td><strong>Flink → pg</strong></td><td>INSERT / UPSERT / DELETE 写入</td><td><code>jdbc</code> (Sink)</td><td>结果落库、报表预计算、指标回写</td></tr>
 <tr><td><strong>pg → Flink</strong></td><td>Lookup Join（维表实时关联）</td><td><code>jdbc</code> (Lookup Source)</td><td>订单流关联用户/商品维度</td></tr>
-<tr><td><strong>pg → Flink</strong></td><td>CDC 变更捕获（binlog 级）</td><td><code>postgres-cdc</code></td><td>实时数仓、双写替代、异构同步</td></tr>
+<tr><td><strong>pg → Flink</strong></td><td><strong>CDC 变更捕获（WAL 级，含 I/U/D）</strong></td><td><code>postgres-cdc</code></td><td>实时数仓、双写替代、异构同步</td></tr>
 <tr><td><strong>pg → Flink</strong></td><td>读分区表并行扫描</td><td><code>jdbc</code> + 分区参数</td><td>大表并行读取</td></tr>
 <tr><td><strong>Flink → pg</strong></td><td>两阶段提交（EXACTLY_ONCE）</td><td><code>jdbc</code> + checkpoint</td><td>金融级不丢不重</td></tr>
-</tbody></table><hr><h2 id="h2-1">1. 环境准备（本机实测路径）</h2><h3 id="h3-2">1.1 网络拓扑（关键，务必先搞懂）</h3><p>本机的 Flink 和 PostgreSQL 是<strong>两个独立的 compose 项目</strong>：</p><pre><span class="lang-tag">text</span><code>pyflink-tutorial (网络: pyflink-tutorial_flink-net)
+</tbody></table><p><strong>章节导航</strong>：1~7 章讲 JDBC 联动（已验证）→ <strong>第 8 章讲 CDC 实时变更捕获</strong>（进阶，含 14 个踩坑）</p><hr><h2 id="h2-1">1. 环境准备（本机实测路径）</h2><h3 id="h3-2">1.1 网络拓扑（关键，务必先搞懂）</h3><p>本机的 Flink 和 PostgreSQL 是<strong>两个独立的 compose 项目</strong>：</p><pre><span class="lang-tag">text</span><code>pyflink-tutorial (网络: pyflink-tutorial_flink-net)
   ├── pyflink-jobmanager       172.19.0.4
   └── pyflink-taskmanager
 
@@ -332,7 +332,162 @@ CREATE TABLE IF NOT EXISTS flink_user_stats (
 <tr><td><code>mysql-connector-j</code></td><td>8.0.33</td><td>MySQL（已配）</td><td>Maven Central</td></tr>
 </tbody></table><p><strong>Maven 坐标</strong>：</p><pre><span class="lang-tag">text</span><code>org/apache/flink/flink-connector-jdbc/3.2.0-1.19/flink-connector-jdbc-3.2.0-1.19.jar
 org/postgresql/postgresql/42.7.4/postgresql-42.7.4.jar
-org/apache/flink/flink-connector-postgres-cdc/3.0.1/flink-connector-postgres-cdc-3.0.1.jar</code></pre><hr><h2 id="h2-29">8. 相关文档</h2><ul><li><code>examples/09_postgres_integration.py</code> —— 本文全部示例的可运行代码</li><li><code>examples/06_connectors.py</code> —— JDBC(MySQL) / Kafka / 文件连接器基础用法</li><li><code>examples/08_realtime_risk_control.py</code> —— Kafka 实时风控完整案例</li><li><code>docs/docker-deployment-tutorial.md</code> —— PyFlink Docker 部署教程（连接器放置、踩坑）</li><li><code>postgresql-course/docs/12-监控性能与连接池.md</code> —— PgBouncer 连接池配置</li><li><code>postgresql-course/docs/15-DBeaver连接与可视化操作.md</code> —— 用 DBeaver 查看 Flink 写入的结果表</li></ul>
+org/apache/flink/flink-connector-postgres-cdc/3.0.1/flink-connector-postgres-cdc-3.0.1.jar</code></pre><hr><h2 id="h2-29">8. PostgreSQL CDC 实时变更捕获（进阶）</h2><blockquote>这一章是全文最硬的部分。CDC 能让你<strong>像读消息队列一样读数据库</strong> —— 每条 INSERT / UPDATE / DELETE 都会被投递成一条流记录。</blockquote><h3 id="h3-30">8.0 先说结论（含未跑通的部分）</h3><table>
+<thead><tr><th>能力</th><th>状态</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>全量快照</td><td>✅ 已验证</td><td>10000 行 <code>users</code> 一次性灌入目标表</td></tr>
+<tr><td>增量 INSERT（<code>+I</code>）</td><td>✅ 已验证</td><td>新插入记录实时捕获</td></tr>
+<tr><td>增量 UPDATE（<code>+U</code>）</td><td>✅ 已验证</td><td>含前像/后像，能看出&quot;改成了什么&quot;</td></tr>
+<tr><td>增量 DELETE（<code>-D</code>）</td><td>⚠️ 事件已收到，但落库需额外处理</td><td>见 8.5</td></tr>
+</tbody></table><p><strong>为什么 DELETE 特殊？</strong> 不是管道坏了 —— Debezium 确实收到了 <code>-D</code> 事件，</p><p>是 <strong>JDBC sink 的 upsert 语义无法把&quot;删除&quot;写成一行记录</strong>。</p><p>这属于下游写入的表达能力问题，不是 CDC 本身的问题。</p><p>处理方案见 8.5，这里先把已经跑通的部分讲清楚。</p><h3 id="h3-31">8.1 CDC 和 JDBC 拉取的本质区别</h3><table>
+<thead><tr><th></th><th>JDBC 轮询</th><th>CDC</th></tr></thead>
+<tbody>
+<tr><td>原理</td><td>定时 <code>SELECT ... WHERE updated_at &gt; ?</code></td><td>读 WAL（预写日志），事件驱动</td></tr>
+<tr><td>能否看到 DELETE</td><td>❌ 记录没了就查不到</td><td>✅ 有 <code>-D</code> 事件</td></tr>
+<tr><td>延迟</td><td>取决于轮询间隔</td><td>毫秒级</td></tr>
+<tr><td>对源库压力</td><td>每次全表/索引扫描</td><td>几乎为零（顺带读日志）</td></tr>
+<tr><td>能否拿到前像</td><td>❌</td><td>✅（需配 <code>REPLICA IDENTITY FULL</code>）</td></tr>
+<tr><td>前置改造</td><td>无</td><td>需开逻辑复制、建账号、改 pg_hba</td></tr>
+</tbody></table><p><strong>选型建议</strong>：数据同步、增量数仓用 CDC；少量维表关联用 JDBC。</p><h3 id="h3-32">8.2 pg 侧五个必做前置（缺一个就报错）</h3><p>这是本章最有价值的部分 —— <strong>按顺序做完这 5 步，后面才不会卡</strong>。</p><h4>① 开逻辑复制（改完必须重启 pg）</h4><pre><span class="lang-tag">ini</span><code># postgresql.conf
+wal_level = logical                  # 原来是 replica，必须改
+max_replication_slots = 10           # 复制槽上限
+max_logical_replication_workers = 4  # 逻辑解码工作进程数
+max_slot_wal_keep_size = 2GB         # ⭐ 防 WAL 撑爆磁盘，见下</code></pre><pre><span class="lang-tag">bash</span><code><span class="kw">docker</span> restart pg-primary            <span class="cm"># wal_level 是静态参数，必须重启</span></code></pre><p><strong>为什么 <code>max_slot_wal_keep_size</code> 很重要：</strong></p><p>逻辑复制槽会&quot;钉住&quot;WAL —— 消费者停多久，WAL 就堆多久，直到撑爆磁盘。</p><p>设了 2GB 之后，超限时 pg 会<strong>主动放弃</strong>复制槽（槽失效需重建），</p><p>属于拿&quot;可用性&quot;换&quot;磁盘不炸&quot;。生产环境必设。</p><h4>② 建 CDC 专用账号</h4><pre><span class="lang-tag">sql</span><code><span class="kw">CREATE</span> ROLE flink_cdc <span class="kw">WITH</span> LOGIN REPLICATION PASSWORD &#x27;cdc123&#x27;;
+
+<span class="cm">-- ⚠️ 三个权限缺一不可，第三个最容易漏：</span>
+GRANT CONNECT <span class="kw">ON</span> DATABASE shop TO flink_cdc;   <span class="cm">-- 能连库</span>
+GRANT USAGE <span class="kw">ON</span> SCHEMA public TO flink_cdc;     <span class="cm">-- 能用 schema</span>
+GRANT <span class="kw">CREATE</span> <span class="kw">ON</span> DATABASE shop TO flink_cdc;    <span class="cm">-- ⭐ 能建 publication</span>
+GRANT <span class="kw">SELECT</span> <span class="kw">ON</span> <span class="kw">ALL</span> TABLES IN SCHEMA public TO flink_cdc;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT <span class="kw">SELECT</span> <span class="kw">ON</span> TABLES TO flink_cdc;</code></pre><p><strong>为什么需要 <code>CREATE</code>？</strong></p><p>Debezium 启动时要建 publication（发布定义）。</p><p>不给 <code>CREATE</code> 会报：</p><pre><span class="lang-tag">text</span><code>ERROR: permission denied for database shop
+  at PostgresReplicationConnection.initPublication(...)</code></pre><h4>③ 用超管预建 publication（关键技巧）</h4><p>即便给了 <code>CREATE</code>，Debezium 默认会尝试建 <strong><code>FOR ALL TABLES</code></strong> 的 publication，</p><p>而<strong>这种 publication 只有超级用户能建</strong>：</p><pre><span class="lang-tag">text</span><code>ERROR: must be superuser to create FOR ALL TABLES publication</code></pre><p><strong>正解</strong>：用超管为&quot;确实要同步的表&quot;预先建好，然后告诉 Debezium 复用：</p><pre><span class="lang-tag">sql</span><code><span class="cm">-- 用超管（postgres）执行</span>
+<span class="kw">CREATE</span> PUBLICATION flink_cdc_pub <span class="kw">FOR</span> <span class="kw">TABLE</span> public.users;</code></pre><p>对应 Flink 配置：</p><pre><span class="lang-tag">python</span><code>&<span class="cm">#x27;debezium.publication.name&#x27; = &#x27;flink_cdc_pub&#x27;,</span>
+&<span class="cm">#x27;debezium.publication.autocreate.mode&#x27; = &#x27;disabled&#x27;,</span></code></pre><p>这样既满足最小权限原则，又绕开了超管要求。</p><h4>④ ⭐⭐ 设置 REPLICA IDENTITY FULL（最容易漏的一条）</h4><pre><span class="lang-tag">sql</span><code>ALTER <span class="kw">TABLE</span> public.users REPLICA IDENTITY FULL;</code></pre><p><strong>不加会怎样？</strong></p><p>INSERT 能正常捕获，但 <strong>UPDATE / DELETE 直接抛异常</strong>：</p><pre><span class="lang-tag">text</span><code>java.lang.IllegalStateException: The &quot;before&quot; field of UPDATE/DELETE message is null,
+please check the Postgres table has been set REPLICA IDENTITY to FULL level.</code></pre><p><strong>原因</strong>：pg 逻辑复制默认（<code>REPLICA IDENTITY DEFAULT</code>）<strong>只发送主键</strong>，</p><p>UPDATE/DELETE 事件里&quot;改之前的样子&quot;是空的。</p><p>而 Flink CDC 需要前像才能表达 changelog 的 <code>-U</code> / <code>-D</code>，拿不到就报错。</p><p>设置后 Debezium 日志会明确确认：</p><pre><span class="lang-tag">text</span><code>REPLICA IDENTITY for &#x27;public.users&#x27; is &#x27;FULL&#x27;;
+UPDATE AND DELETE events will contain the previous values of all the columns</code></pre><p><strong>代价</strong>：WAL 体积会变大（每行变更都要带完整旧值）。</p><p>只在<strong>需要前像的表</strong>上开，别全库开。</p><h4>⑤ pg_hba.conf 放行</h4><pre><span class="lang-tag">text</span><code># 放在兜底 reject 之前
+host  all          flink_cdc  172.16.0.0/12  scram-sha-256   # ⭐ 普通连接（读编码信息要用）
+host  replication  flink_cdc  172.16.0.0/12  scram-sha-256   # 复制连接
+host  all          flink_cdc  172.17.0.0/16  scram-sha-256   # Docker 网桥段
+host  replication  flink_cdc  172.17.0.0/16  scram-sha-256</code></pre><p><strong>注意两点：</strong></p><ol><li><strong><code>all</code> 和 <code>replication</code> 都要给。</strong> 只给 <code>replication</code> 会报：</li></ol><pre><span class="lang-tag">text</span><code>   DebeziumException: Couldn&#x27;t obtain encoding for database shop</code></pre><p>   因为 Debezium 建复制连接时会带上库名，还要用普通连接读 <code>pg_database</code> 的编码。</p><ol><li><strong>pg_hba 是从上往下第一条命中即生效。</strong> 兜底 <code>reject</code> 必须在最后，</li></ol><p>   新增规则要插在它<strong>前面</strong>。</p><p>改完热重载（不用重启）：</p><pre><span class="lang-tag">sql</span><code><span class="kw">SELECT</span> pg_reload_conf();</code></pre><h3 id="h3-33">8.3 Flink 侧配置</h3><p><strong>JAR 选择（踩过坑）：</strong></p><pre><span class="lang-tag">bash</span><code><span class="cm"># ❌ 瘦包，174K，缺依赖 → NoClassDefFoundError: JdbcSourceOptions</span>
+flink-connector-postgres-cdc-3.6.0-1.20.jar
+
+<span class="cm"># ✅ 胖包，20M，依赖全含 → SQL 场景必须用这个</span>
+flink-sql-connector-postgres-cdc-3.6.0-1.20.jar</code></pre><p>规律：<strong>SQL 连接器一律用 <code>flink-sql-</code> 前缀的胖包。</strong></p><p><strong>⚠️ JobManager 和 TaskManager 的 JAR 必须一致。</strong></p><p>手动加 JAR 后两个容器都要重启，否则报：</p><pre><span class="lang-tag">text</span><code>StreamCorruptedException: unexpected block data
+Cannot instantiate user function</code></pre><p><strong>源表定义：</strong></p><pre><span class="lang-tag">sql</span><code><span class="kw">CREATE</span> <span class="kw">TABLE</span> users_cdc (
+    id         BIGINT,
+    username   VARCHAR(64),
+    email      VARCHAR(128),
+    status     SMALLINT,
+    balance    DECIMAL(12, 2),
+    created_at TIMESTAMP(3),          <span class="cm">-- ⚠️ 不能写 TIMESTAMP_LTZ，JDBC pg 方言不支持</span>
+    row_kind   STRING METADATA <span class="kw">FROM</span> &#x27;row_kind&#x27; VIRTUAL,   <span class="cm">-- ⚠️ 不是 &#x27;op&#x27;</span>
+    op_ts      TIMESTAMP(3) METADATA <span class="kw">FROM</span> &#x27;op_ts&#x27; VIRTUAL,
+    <span class="kw">PRIMARY</span> <span class="kw">KEY</span> (id) <span class="kw">NOT</span> <span class="kw">ENFORCED</span>
+) <span class="kw">WITH</span> (
+    &#x27;connector&#x27;      = &#x27;postgres-cdc&#x27;,
+    &#x27;hostname&#x27;       = &#x27;host.docker.internal&#x27;,
+    &#x27;port&#x27;           = &#x27;5432&#x27;,
+    &#x27;username&#x27;       = &#x27;flink_cdc&#x27;,
+    &#x27;password&#x27;       = &#x27;cdc123&#x27;,
+    &#x27;database-name&#x27;  = &#x27;shop&#x27;,
+    &#x27;schema-name&#x27;    = &#x27;public&#x27;,
+    &#x27;<span class="kw">TABLE</span>-name&#x27;     = &#x27;users&#x27;,
+    &#x27;slot.name&#x27;      = &#x27;flink_users_slot&#x27;,
+    &#x27;decoding.plugin.name&#x27; = &#x27;pgoutput&#x27;,
+    &#x27;debezium.publication.name&#x27; = &#x27;flink_cdc_pub&#x27;,
+    &#x27;debezium.publication.autocreate.mode&#x27; = &#x27;disabled&#x27;,
+    &#x27;debezium.snapshot.mode&#x27; = &#x27;initial&#x27;,
+    &#x27;debezium.heartbeat.<span class="kw">INTERVAL</span>.ms&#x27; = &#x27;10000&#x27;
+)</code></pre><p><strong>元数据列名的坑：</strong></p><p>Flink CDC 3.6 的 <code>PostgreSQLTableSource</code> <strong>只支持 5 个元数据键</strong>：</p><p><code>database_name</code> / <code>schema_name</code> / <code>table_name</code> / <code>op_ts</code> / <code>row_kind</code></p><p>写成 <code>op</code> 会报 <code>Invalid metadata key &#x27;op&#x27;</code>。</p><p><code>row_kind</code> 的值形如 <code>+I</code>（插入）/ <code>-U</code>（更新前像）/ <code>+U</code>（更新后像）/ <code>-D</code>（删除）。</p><p><strong><code>snapshot.mode</code> 的合法值（只有 6 个）：</strong></p><pre><span class="lang-tag">text</span><code>always / exported / never / initial_only / initial / custom</code></pre><table>
+<thead><tr><th>值</th><th>含义</th></tr></thead>
+<tbody>
+<tr><td><code>initial</code></td><td>先全量快照，再转增量（<strong>生产推荐</strong>，不丢历史）</td></tr>
+<tr><td><code>never</code></td><td>跳过快照，只抓启动后的变更（<strong>演示最直观</strong>）</td></tr>
+</tbody></table><blockquote>⚠️ <strong>没有 <code>latest</code> 这个值！</strong> 凭印象写成 <code>latest</code> 会报： <code>The &#x27;snapshot.mode&#x27; value &#x27;latest&#x27; is invalid</code></blockquote><h3 id="h3-34">8.4 两个最隐蔽的坑</h3><h4>坑 A：PyFlink 起的是&quot;假集群&quot;（最重大）</h4><pre><span class="lang-tag">bash</span><code><span class="kw">docker</span> exec jobmanager <span class="kw">python</span> examples/10_postgres_cdc.py</code></pre><p>这么跑，Python 进程会起一个<strong>进程内 MiniCluster</strong>，不是 8081 那个真集群。</p><p><strong>症状（极具迷惑性）：</strong></p><ul><li>脚本 exit=0，日志看起来&quot;成功&quot;</li><li>Flink Web UI 上<strong>一个作业都没有</strong></li><li>pg 侧<strong>复制槽从未创建</strong></li><li>进程一退出，作业和状态全没</li></ul><p><strong>验证手段：</strong></p><pre><span class="lang-tag">bash</span><code><span class="cm"># 作业列表持续为空 → 说明提交到别处去了</span>
+curl -s http://localhost:8081/jobs/overview
+<span class="cm"># pg 侧没有逻辑槽 → CDC 从未启动</span>
+<span class="kw">docker</span> exec -i pg-primary psql -U postgres -d shop \
+  -c <span class="st">&quot;SELECT * FROM pg_replication_slots;&quot;</span></code></pre><p><strong>解法（三行配置）：</strong></p><pre><span class="lang-tag">python</span><code><span class="kw">if</span> args.target == <span class="st">&quot;remote&quot;</span>:
+    env.get_config().set(<span class="st">&quot;execution.target&quot;</span>, <span class="st">&quot;remote&quot;</span>)
+    env.get_config().set(<span class="st">&quot;rest.address&quot;</span>, <span class="st">&quot;jobmanager&quot;</span>)
+    env.get_config().set(<span class="st">&quot;rest.port&quot;</span>, <span class="st">&quot;8081&quot;</span>)</code></pre><h4>坑 B：作业提交成功却 6 秒自己 FINISHED</h4><p>CDC 源在启动瞬间走异步快照，此时对外表现&quot;像个有界源&quot;。</p><p>不处理的话，快照读完 Flink 就判定&quot;输入结束&quot;→ 作业 FINISHED</p><p>（注意是 <strong>FINISHED 不是 FAILED</strong>，日志干净得毫无线索）→ 增量变更全漏。</p><p><strong>解法：</strong></p><pre><span class="lang-tag">python</span><code>env.get_config().set(<span class="st">&quot;table.optimizer.source-scan-bounded-check&quot;</span>, <span class="st">&quot;false&quot;</span>)
+env.get_config().set(<span class="st">&quot;table.exec.source.idle-timeout&quot;</span>, <span class="st">&quot;0&quot;</span>)</code></pre><p><strong>判断作业是否真的在跑：</strong></p><pre><span class="lang-tag">bash</span><code><span class="cm"># ① 作业状态必须是 RUNNING（不是 FINISHED）</span>
+curl -s http://localhost:8081/jobs/overview
+<span class="cm"># ② 复制槽必须 active = t</span>
+<span class="kw">docker</span> exec -i pg-primary psql -U postgres -d shop \
+  -c &quot;SELECT slot_name, active FROM pg_replication_slots WHERE slot_type=&<span class="cm">#x27;logical&#x27;;&quot;</span></code></pre><blockquote><strong>方法论</strong>： 「作业提交成功」≠「作业在跑」。 <strong>复制槽存在 = CDC 真正启动的铁证。</strong></blockquote><h3 id="h3-35">8.5 sink 选择与 DELETE 问题</h3><p><strong>每种 sink 都试过：</strong></p><table>
+<thead><tr><th>sink</th><th>结果</th></tr></thead>
+<tbody>
+<tr><td><code>print</code></td><td>输出进 TaskManager 日志，<code>docker exec</code> 下 stdout 看不到</td></tr>
+<tr><td><code>filesystem</code></td><td>只能 append，接不住 changelog&lt;br/&gt;报 <code>doesn&#x27;t support consuming update and delete changes</code></td></tr>
+<tr><td><code>jdbc</code> <strong>无主键</strong></td><td>直接拒绝：&lt;br/&gt;<code>please declare primary key for sink table when query contains update/delete record</code></td></tr>
+<tr><td><code>jdbc</code> <strong>有主键</strong></td><td>✅ upsert，能接 changelog —— 但<strong>删除不传播</strong></td></tr>
+</tbody></table><p><strong>结论：JDBC sink 必须带主键。</strong></p><p><strong>审计日志的做法：</strong></p><p>给每条变更事件发一个<strong>唯一 UUID 当主键</strong>，这样每个事件都落成独立一行：</p><pre><span class="lang-tag">sql</span><code><span class="cm">-- 事件流视图</span>
+<span class="kw">CREATE</span> TEMPORARY VIEW users_ops <span class="kw">AS</span>
+<span class="kw">SELECT</span> id, username, status, balance,
+       row_kind <span class="kw">AS</span> op_type,
+       CASE row_kind
+           WHEN &#x27;+I&#x27; THEN &#x27;<span class="kw">INSERT</span>&#x27;
+           WHEN &#x27;+U&#x27; THEN &#x27;UPDATE&#x27;
+           WHEN &#x27;-U&#x27; THEN &#x27;UPDATE(前像)&#x27;
+           WHEN &#x27;-D&#x27; THEN &#x27;DELETE&#x27;
+       <span class="kw">END</span> <span class="kw">AS</span> op_name,
+       op_ts
+<span class="kw">FROM</span> users_cdc;
+
+<span class="cm">-- 审计视图：UUID 主键 = 每条事件一行</span>
+<span class="kw">CREATE</span> TEMPORARY VIEW users_audit <span class="kw">AS</span>
+<span class="kw">SELECT</span> UUID() <span class="kw">AS</span> event_id, id <span class="kw">AS</span> row_id,
+       username, status, balance, op_type, op_name, op_ts
+<span class="kw">FROM</span> users_ops;</code></pre><p>实测结果：</p><pre><span class="lang-tag">text</span><code> row_id | username | balance | op_type | op_name |          op_ts
+--------+----------+---------+---------+---------+-------------------------
+  10022 | cdc_ok   |  111.11 | +I      | INSERT  | 2026-09-20 09:07:12.297
+  10022 | cdc_ok   |  222.22 | +U      | UPDATE  | 2026-09-20 09:07:24.636</code></pre><p>INSERT 和 UPDATE 都完整落库（能看到 balance 从 111.11 变成 222.22）。</p><p><strong>DELETE 怎么办？三个可选方案：</strong></p><ol><li><strong>换 sink</strong>：用 Kafka / Pulsar 等原生支持 changelog 的 sink</li></ol><p>   （<code>upsert-kafka</code> 带 <code>key</code> + <code>value</code>，能表达删除）</p><ol><li><strong>在 Flink 侧把 <code>-D</code> 重写成插入</strong>：让删除动作变成审计表里的一行&quot;删除记录&quot;</li></ol><pre><span class="lang-tag">sql</span><code>   <span class="cm">-- 把 -D 的 op_type 改写成 +U，使其成为一条独立的插入记录</span>
+   CASE WHEN op_type = &#x27;-D&#x27; THEN &#x27;+U&#x27; ELSE op_type <span class="kw">END</span> <span class="kw">AS</span> op_type</code></pre><p>   ⚠️ 注意：不能简单用 <code>UNION ALL</code> 拆两个分支 —— 把 changelog 流和 append 流</p><p>   混合会<strong>静默丢记录</strong>（实测 <code>-D</code> 那支整支不到下游）。</p><ol><li><strong>用 Flink SQL 的 CDC 专用落地</strong>：<code>CREATE TABLE ... WITH (&#x27;connector&#x27;=&#x27;jdbc&#x27;)</code></li></ol><p>   配合 <code>PRIMARY KEY (id)</code>，接受&quot;删除不传播&quot;这个语义权衡（镜像是最终态，不是历史轨迹）</p><p><strong>本质原因</strong>：JDBC 的 upsert 只能表达&quot;插入或覆盖&quot;，没有&quot;删除某个 key&quot;的对应语句。</p><p>这是 sink 能力的边界，不是配置问题。</p><h3 id="h3-36">8.6 验证脚本</h3><pre><span class="lang-tag">bash</span><code><span class="cm"># ① 清理（复制槽 + 目标表）</span>
+<span class="kw">docker</span> exec -i pg-primary psql -U postgres -d shop \
+  -c &quot;SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_type=&<span class="cm">#x27;logical&#x27;;&quot;</span>
+<span class="kw">docker</span> exec -i pg-primary psql -U postgres -d shop -c <span class="st">&quot;TRUNCATE cdc_audit_log;&quot;</span>
+
+<span class="cm"># ② 起 CDC（never 模式，纯增量演示）</span>
+<span class="kw">docker</span> exec pyflink-jobmanager <span class="kw">bash</span> -c \
+  &quot;<span class="kw">cd</span> /opt/flink &amp;&amp; CDC_SNAPSHOT_MODE=never timeout 170 \
+   <span class="kw">python</span> examples/10_postgres_cdc.py --local --seconds 115 --target remote&quot;
+
+<span class="cm"># ③ 作业跑起来后（另开终端），制造变更</span>
+<span class="kw">docker</span> exec -i pg-primary psql -U shop -d shop -c \
+  &quot;INSERT INTO users (uid,username,email,phone,password_hash,nickname,status,level,balance,created_at,updated_at) \
+   VALUES (gen_random_uuid(),&<span class="cm">#x27;cdc_demo&#x27;,&#x27;d@demo.com&#x27;,&#x27;13800000000&#x27;,&#x27;h&#x27;,&#x27;测试&#x27;,1,1,111.11,now(),now());&quot;</span>
+sleep 8
+<span class="kw">docker</span> exec -i pg-primary psql -U shop -d shop -c \
+  &quot;UPDATE users SET balance=222.22 WHERE username=&<span class="cm">#x27;cdc_demo&#x27;;&quot;</span>
+sleep 8
+<span class="kw">docker</span> exec -i pg-primary psql -U shop -d shop -c \
+  &quot;DELETE FROM users WHERE username=&<span class="cm">#x27;cdc_demo&#x27;;&quot;</span>
+
+<span class="cm"># ④ 看结果</span>
+<span class="kw">docker</span> exec -i pg-primary psql -U shop -d shop \
+  -c <span class="st">&quot;SELECT row_id, username, balance, op_type, op_name, op_ts FROM cdc_audit_log ORDER BY op_ts;&quot;</span></code></pre><p><strong>判断成功的硬指标：</strong></p><pre><span class="lang-tag">bash</span><code><span class="cm"># 作业 RUNNING</span>
+curl -s http://localhost:8081/jobs/overview
+<span class="cm"># 复制槽 active = t（这是 CDC 真在消费 WAL 的铁证）</span>
+<span class="kw">docker</span> exec -i pg-primary psql -U postgres -d shop \
+  -c &quot;SELECT slot_name, active FROM pg_replication_slots WHERE slot_type=&<span class="cm">#x27;logical&#x27;;&quot;</span></code></pre><h3 id="h3-37">8.7 CDC 排查手册</h3><table>
+<thead><tr><th>现象</th><th>根因</th><th>解法</th></tr></thead>
+<tbody>
+<tr><td><code>NoClassDefFoundError: JdbcSourceOptions</code></td><td>用了瘦包</td><td>换 <code>flink-sql-</code> 前缀胖包</td></tr>
+<tr><td><code>Invalid metadata key &#x27;op&#x27;</code></td><td>元数据键名错</td><td>改 <code>row_kind</code></td></tr>
+<tr><td><code>must be superuser to create FOR ALL TABLES publication</code></td><td>Debezium 想建全库 publication</td><td>超管预建 + <code>publication.autocreate.mode=disabled</code></td></tr>
+<tr><td><code>permission denied for database shop</code></td><td>账号缺 <code>CREATE</code></td><td><code>GRANT CREATE ON DATABASE shop TO flink_cdc</code></td></tr>
+<tr><td><code>Couldn&#x27;t obtain encoding for database shop</code></td><td>pg_hba 只给了 replication</td><td>补 <code>all</code> 规则</td></tr>
+<tr><td><code>pg_hba.conf rejects connection</code></td><td>没放行 CDC 账号/网段</td><td>加规则（<code>172.16.0.0/12</code> + <code>172.17.0.0/16</code>）</td></tr>
+<tr><td><code>before field of UPDATE/DELETE message is null</code></td><td>没设 REPLICA IDENTITY</td><td><code>ALTER TABLE ... REPLICA IDENTITY FULL</code></td></tr>
+<tr><td><code>Unsupported type:TIMESTAMP_LTZ</code></td><td>JDBC pg 方言不支持</td><td>改 <code>TIMESTAMP(3)</code></td></tr>
+<tr><td><code>snapshot.mode &#x27;latest&#x27; is invalid</code></td><td>参数值不存在</td><td>用 <code>never</code>（跳过快照）</td></tr>
+<tr><td>作业 6 秒就 FINISHED</td><td>有界源误判</td><td><code>source-scan-bounded-check=false</code></td></tr>
+<tr><td>Web UI 看不到作业</td><td>起了进程内 MiniCluster</td><td>配 <code>execution.target=remote</code></td></tr>
+<tr><td><code>please declare primary key for sink table</code></td><td>JDBC sink 无主键</td><td>加 <code>PRIMARY KEY</code>（可用 UUID）</td></tr>
+<tr><td><code>StreamCorruptedException</code></td><td>JM/TM 的 JAR 不一致</td><td>两个容器都重启</td></tr>
+<tr><td><code>Failed to create directory for shared state</code></td><td>checkpoint 目录归属 root</td><td><code>chown -R flink:flink /opt/flink/checkpoints</code></td></tr>
+</tbody></table><hr><h2 id="h2-38">9. 相关文档</h2><ul><li><code>examples/09_postgres_integration.py</code> —— JDBC 联动全部示例</li><li><code>examples/10_postgres_cdc.py</code> —— CDC 实时变更捕获（本章配套代码）</li><li><code>examples/06_connectors.py</code> —— JDBC(MySQL) / Kafka / 文件连接器基础用法</li><li><code>examples/08_realtime_risk_control.py</code> —— Kafka 实时风控完整案例</li><li><code>docs/docker-deployment-tutorial.md</code> —— PyFlink Docker 部署教程（连接器放置、踩坑）</li><li><code>docs/github-deployment.md</code> —— 部署到 GitHub（敏感信息处理 / JAR 策略）</li><li><code>postgresql-course/docs/12-监控性能与连接池.md</code> —— PgBouncer 连接池配置</li><li><code>postgresql-course/docs/15-DBeaver连接与可视化操作.md</code> —— 用 DBeaver 查看 Flink 写入的结果表</li></ul>
 </main>
 <script>
 const links=[...document.querySelectorAll('#side a')];

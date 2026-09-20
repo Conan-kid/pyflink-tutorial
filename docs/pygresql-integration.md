@@ -14,9 +14,11 @@
 | **pg → Flink** | 批量扫描全表 / 增量按时间戳拉取 | `jdbc` (Source) | 数据同步、离线分析、初始化加载 |
 | **Flink → pg** | INSERT / UPSERT / DELETE 写入 | `jdbc` (Sink) | 结果落库、报表预计算、指标回写 |
 | **pg → Flink** | Lookup Join（维表实时关联） | `jdbc` (Lookup Source) | 订单流关联用户/商品维度 |
-| **pg → Flink** | CDC 变更捕获（binlog 级） | `postgres-cdc` | 实时数仓、双写替代、异构同步 |
+| **pg → Flink** | **CDC 变更捕获（WAL 级，含 I/U/D）** | `postgres-cdc` | 实时数仓、双写替代、异构同步 |
 | **pg → Flink** | 读分区表并行扫描 | `jdbc` + 分区参数 | 大表并行读取 |
 | **Flink → pg** | 两阶段提交（EXACTLY_ONCE） | `jdbc` + checkpoint | 金融级不丢不重 |
+
+**章节导航**：1~7 章讲 JDBC 联动（已验证）→ **第 8 章讲 CDC 实时变更捕获**（进阶，含 14 个踩坑）
 
 ---
 
@@ -583,11 +585,419 @@ org/apache/flink/flink-connector-postgres-cdc/3.0.1/flink-connector-postgres-cdc
 
 ---
 
-## 8. 相关文档
+## 8. PostgreSQL CDC 实时变更捕获（进阶）
 
-- `examples/09_postgres_integration.py` —— 本文全部示例的可运行代码
+> 这一章是全文最硬的部分。CDC 能让你**像读消息队列一样读数据库** ——
+> 每条 INSERT / UPDATE / DELETE 都会被投递成一条流记录。
+
+### 8.0 先说结论（含未跑通的部分）
+
+| 能力 | 状态 | 说明 |
+|---|---|---|
+| 全量快照 | ✅ 已验证 | 10000 行 `users` 一次性灌入目标表 |
+| 增量 INSERT（`+I`） | ✅ 已验证 | 新插入记录实时捕获 |
+| 增量 UPDATE（`+U`） | ✅ 已验证 | 含前像/后像，能看出"改成了什么" |
+| 增量 DELETE（`-D`） | ⚠️ 事件已收到，但落库需额外处理 | 见 8.5 |
+
+**为什么 DELETE 特殊？** 不是管道坏了 —— Debezium 确实收到了 `-D` 事件，
+是 **JDBC sink 的 upsert 语义无法把"删除"写成一行记录**。
+这属于下游写入的表达能力问题，不是 CDC 本身的问题。
+处理方案见 8.5，这里先把已经跑通的部分讲清楚。
+
+### 8.1 CDC 和 JDBC 拉取的本质区别
+
+| | JDBC 轮询 | CDC |
+|---|---|---|
+| 原理 | 定时 `SELECT ... WHERE updated_at > ?` | 读 WAL（预写日志），事件驱动 |
+| 能否看到 DELETE | ❌ 记录没了就查不到 | ✅ 有 `-D` 事件 |
+| 延迟 | 取决于轮询间隔 | 毫秒级 |
+| 对源库压力 | 每次全表/索引扫描 | 几乎为零（顺带读日志） |
+| 能否拿到前像 | ❌ | ✅（需配 `REPLICA IDENTITY FULL`） |
+| 前置改造 | 无 | 需开逻辑复制、建账号、改 pg_hba |
+
+**选型建议**：数据同步、增量数仓用 CDC；少量维表关联用 JDBC。
+
+### 8.2 pg 侧五个必做前置（缺一个就报错）
+
+这是本章最有价值的部分 —— **按顺序做完这 5 步，后面才不会卡**。
+
+#### ① 开逻辑复制（改完必须重启 pg）
+
+```ini
+# postgresql.conf
+wal_level = logical                  # 原来是 replica，必须改
+max_replication_slots = 10           # 复制槽上限
+max_logical_replication_workers = 4  # 逻辑解码工作进程数
+max_slot_wal_keep_size = 2GB         # ⭐ 防 WAL 撑爆磁盘，见下
+```
+
+```bash
+docker restart pg-primary            # wal_level 是静态参数，必须重启
+```
+
+**为什么 `max_slot_wal_keep_size` 很重要：**
+逻辑复制槽会"钉住"WAL —— 消费者停多久，WAL 就堆多久，直到撑爆磁盘。
+设了 2GB 之后，超限时 pg 会**主动放弃**复制槽（槽失效需重建），
+属于拿"可用性"换"磁盘不炸"。生产环境必设。
+
+#### ② 建 CDC 专用账号
+
+```sql
+CREATE ROLE flink_cdc WITH LOGIN REPLICATION PASSWORD 'cdc123';
+
+-- ⚠️ 三个权限缺一不可，第三个最容易漏：
+GRANT CONNECT ON DATABASE shop TO flink_cdc;   -- 能连库
+GRANT USAGE ON SCHEMA public TO flink_cdc;     -- 能用 schema
+GRANT CREATE ON DATABASE shop TO flink_cdc;    -- ⭐ 能建 publication
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO flink_cdc;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO flink_cdc;
+```
+
+**为什么需要 `CREATE`？**
+Debezium 启动时要建 publication（发布定义）。
+不给 `CREATE` 会报：
+```
+ERROR: permission denied for database shop
+  at PostgresReplicationConnection.initPublication(...)
+```
+
+#### ③ 用超管预建 publication（关键技巧）
+
+即便给了 `CREATE`，Debezium 默认会尝试建 **`FOR ALL TABLES`** 的 publication，
+而**这种 publication 只有超级用户能建**：
+
+```
+ERROR: must be superuser to create FOR ALL TABLES publication
+```
+
+**正解**：用超管为"确实要同步的表"预先建好，然后告诉 Debezium 复用：
+
+```sql
+-- 用超管（postgres）执行
+CREATE PUBLICATION flink_cdc_pub FOR TABLE public.users;
+```
+
+对应 Flink 配置：
+```python
+'debezium.publication.name' = 'flink_cdc_pub',
+'debezium.publication.autocreate.mode' = 'disabled',
+```
+
+这样既满足最小权限原则，又绕开了超管要求。
+
+#### ④ ⭐⭐ 设置 REPLICA IDENTITY FULL（最容易漏的一条）
+
+```sql
+ALTER TABLE public.users REPLICA IDENTITY FULL;
+```
+
+**不加会怎样？**
+INSERT 能正常捕获，但 **UPDATE / DELETE 直接抛异常**：
+
+```
+java.lang.IllegalStateException: The "before" field of UPDATE/DELETE message is null,
+please check the Postgres table has been set REPLICA IDENTITY to FULL level.
+```
+
+**原因**：pg 逻辑复制默认（`REPLICA IDENTITY DEFAULT`）**只发送主键**，
+UPDATE/DELETE 事件里"改之前的样子"是空的。
+而 Flink CDC 需要前像才能表达 changelog 的 `-U` / `-D`，拿不到就报错。
+
+设置后 Debezium 日志会明确确认：
+```
+REPLICA IDENTITY for 'public.users' is 'FULL';
+UPDATE AND DELETE events will contain the previous values of all the columns
+```
+
+**代价**：WAL 体积会变大（每行变更都要带完整旧值）。
+只在**需要前像的表**上开，别全库开。
+
+#### ⑤ pg_hba.conf 放行
+
+```
+# 放在兜底 reject 之前
+host  all          flink_cdc  172.16.0.0/12  scram-sha-256   # ⭐ 普通连接（读编码信息要用）
+host  replication  flink_cdc  172.16.0.0/12  scram-sha-256   # 复制连接
+host  all          flink_cdc  172.17.0.0/16  scram-sha-256   # Docker 网桥段
+host  replication  flink_cdc  172.17.0.0/16  scram-sha-256
+```
+
+**注意两点：**
+1. **`all` 和 `replication` 都要给。** 只给 `replication` 会报：
+   ```
+   DebeziumException: Couldn't obtain encoding for database shop
+   ```
+   因为 Debezium 建复制连接时会带上库名，还要用普通连接读 `pg_database` 的编码。
+2. **pg_hba 是从上往下第一条命中即生效。** 兜底 `reject` 必须在最后，
+   新增规则要插在它**前面**。
+
+改完热重载（不用重启）：
+```sql
+SELECT pg_reload_conf();
+```
+
+### 8.3 Flink 侧配置
+
+**JAR 选择（踩过坑）：**
+
+```bash
+# ❌ 瘦包，174K，缺依赖 → NoClassDefFoundError: JdbcSourceOptions
+flink-connector-postgres-cdc-3.6.0-1.20.jar
+
+# ✅ 胖包，20M，依赖全含 → SQL 场景必须用这个
+flink-sql-connector-postgres-cdc-3.6.0-1.20.jar
+```
+
+规律：**SQL 连接器一律用 `flink-sql-` 前缀的胖包。**
+
+**⚠️ JobManager 和 TaskManager 的 JAR 必须一致。**
+手动加 JAR 后两个容器都要重启，否则报：
+```
+StreamCorruptedException: unexpected block data
+Cannot instantiate user function
+```
+
+**源表定义：**
+
+```sql
+CREATE TABLE users_cdc (
+    id         BIGINT,
+    username   VARCHAR(64),
+    email      VARCHAR(128),
+    status     SMALLINT,
+    balance    DECIMAL(12, 2),
+    created_at TIMESTAMP(3),          -- ⚠️ 不能写 TIMESTAMP_LTZ，JDBC pg 方言不支持
+    row_kind   STRING METADATA FROM 'row_kind' VIRTUAL,   -- ⚠️ 不是 'op'
+    op_ts      TIMESTAMP(3) METADATA FROM 'op_ts' VIRTUAL,
+    PRIMARY KEY (id) NOT ENFORCED
+) WITH (
+    'connector'      = 'postgres-cdc',
+    'hostname'       = 'host.docker.internal',
+    'port'           = '5432',
+    'username'       = 'flink_cdc',
+    'password'       = 'cdc123',
+    'database-name'  = 'shop',
+    'schema-name'    = 'public',
+    'table-name'     = 'users',
+    'slot.name'      = 'flink_users_slot',
+    'decoding.plugin.name' = 'pgoutput',
+    'debezium.publication.name' = 'flink_cdc_pub',
+    'debezium.publication.autocreate.mode' = 'disabled',
+    'debezium.snapshot.mode' = 'initial',
+    'debezium.heartbeat.interval.ms' = '10000'
+)
+```
+
+**元数据列名的坑：**
+Flink CDC 3.6 的 `PostgreSQLTableSource` **只支持 5 个元数据键**：
+`database_name` / `schema_name` / `table_name` / `op_ts` / `row_kind`
+
+写成 `op` 会报 `Invalid metadata key 'op'`。
+`row_kind` 的值形如 `+I`（插入）/ `-U`（更新前像）/ `+U`（更新后像）/ `-D`（删除）。
+
+**`snapshot.mode` 的合法值（只有 6 个）：**
+
+```
+always / exported / never / initial_only / initial / custom
+```
+
+| 值 | 含义 |
+|---|---|
+| `initial` | 先全量快照，再转增量（**生产推荐**，不丢历史） |
+| `never` | 跳过快照，只抓启动后的变更（**演示最直观**） |
+
+> ⚠️ **没有 `latest` 这个值！** 凭印象写成 `latest` 会报：
+> `The 'snapshot.mode' value 'latest' is invalid`
+
+### 8.4 两个最隐蔽的坑
+
+#### 坑 A：PyFlink 起的是"假集群"（最重大）
+
+```bash
+docker exec jobmanager python examples/10_postgres_cdc.py
+```
+
+这么跑，Python 进程会起一个**进程内 MiniCluster**，不是 8081 那个真集群。
+
+**症状（极具迷惑性）：**
+- 脚本 exit=0，日志看起来"成功"
+- Flink Web UI 上**一个作业都没有**
+- pg 侧**复制槽从未创建**
+- 进程一退出，作业和状态全没
+
+**验证手段：**
+```bash
+# 作业列表持续为空 → 说明提交到别处去了
+curl -s http://localhost:8081/jobs/overview
+# pg 侧没有逻辑槽 → CDC 从未启动
+docker exec -i pg-primary psql -U postgres -d shop \
+  -c "SELECT * FROM pg_replication_slots;"
+```
+
+**解法（三行配置）：**
+```python
+if args.target == "remote":
+    env.get_config().set("execution.target", "remote")
+    env.get_config().set("rest.address", "jobmanager")
+    env.get_config().set("rest.port", "8081")
+```
+
+#### 坑 B：作业提交成功却 6 秒自己 FINISHED
+
+CDC 源在启动瞬间走异步快照，此时对外表现"像个有界源"。
+不处理的话，快照读完 Flink 就判定"输入结束"→ 作业 FINISHED
+（注意是 **FINISHED 不是 FAILED**，日志干净得毫无线索）→ 增量变更全漏。
+
+**解法：**
+```python
+env.get_config().set("table.optimizer.source-scan-bounded-check", "false")
+env.get_config().set("table.exec.source.idle-timeout", "0")
+```
+
+**判断作业是否真的在跑：**
+```bash
+# ① 作业状态必须是 RUNNING（不是 FINISHED）
+curl -s http://localhost:8081/jobs/overview
+# ② 复制槽必须 active = t
+docker exec -i pg-primary psql -U postgres -d shop \
+  -c "SELECT slot_name, active FROM pg_replication_slots WHERE slot_type='logical';"
+```
+
+> **方法论**：
+> 「作业提交成功」≠「作业在跑」。
+> **复制槽存在 = CDC 真正启动的铁证。**
+
+### 8.5 sink 选择与 DELETE 问题
+
+**每种 sink 都试过：**
+
+| sink | 结果 |
+|---|---|
+| `print` | 输出进 TaskManager 日志，`docker exec` 下 stdout 看不到 |
+| `filesystem` | 只能 append，接不住 changelog<br/>报 `doesn't support consuming update and delete changes` |
+| `jdbc` **无主键** | 直接拒绝：<br/>`please declare primary key for sink table when query contains update/delete record` |
+| `jdbc` **有主键** | ✅ upsert，能接 changelog —— 但**删除不传播** |
+
+**结论：JDBC sink 必须带主键。**
+
+**审计日志的做法：**
+
+给每条变更事件发一个**唯一 UUID 当主键**，这样每个事件都落成独立一行：
+
+```sql
+-- 事件流视图
+CREATE TEMPORARY VIEW users_ops AS
+SELECT id, username, status, balance,
+       row_kind AS op_type,
+       CASE row_kind
+           WHEN '+I' THEN 'INSERT'
+           WHEN '+U' THEN 'UPDATE'
+           WHEN '-U' THEN 'UPDATE(前像)'
+           WHEN '-D' THEN 'DELETE'
+       END AS op_name,
+       op_ts
+FROM users_cdc;
+
+-- 审计视图：UUID 主键 = 每条事件一行
+CREATE TEMPORARY VIEW users_audit AS
+SELECT UUID() AS event_id, id AS row_id,
+       username, status, balance, op_type, op_name, op_ts
+FROM users_ops;
+```
+
+实测结果：
+```
+ row_id | username | balance | op_type | op_name |          op_ts
+--------+----------+---------+---------+---------+-------------------------
+  10022 | cdc_ok   |  111.11 | +I      | INSERT  | 2026-09-20 09:07:12.297
+  10022 | cdc_ok   |  222.22 | +U      | UPDATE  | 2026-09-20 09:07:24.636
+```
+
+INSERT 和 UPDATE 都完整落库（能看到 balance 从 111.11 变成 222.22）。
+
+**DELETE 怎么办？三个可选方案：**
+
+1. **换 sink**：用 Kafka / Pulsar 等原生支持 changelog 的 sink
+   （`upsert-kafka` 带 `key` + `value`，能表达删除）
+2. **在 Flink 侧把 `-D` 重写成插入**：让删除动作变成审计表里的一行"删除记录"
+   ```sql
+   -- 把 -D 的 op_type 改写成 +U，使其成为一条独立的插入记录
+   CASE WHEN op_type = '-D' THEN '+U' ELSE op_type END AS op_type
+   ```
+   ⚠️ 注意：不能简单用 `UNION ALL` 拆两个分支 —— 把 changelog 流和 append 流
+   混合会**静默丢记录**（实测 `-D` 那支整支不到下游）。
+3. **用 Flink SQL 的 CDC 专用落地**：`CREATE TABLE ... WITH ('connector'='jdbc')`
+   配合 `PRIMARY KEY (id)`，接受"删除不传播"这个语义权衡（镜像是最终态，不是历史轨迹）
+
+**本质原因**：JDBC 的 upsert 只能表达"插入或覆盖"，没有"删除某个 key"的对应语句。
+这是 sink 能力的边界，不是配置问题。
+
+### 8.6 验证脚本
+
+```bash
+# ① 清理（复制槽 + 目标表）
+docker exec -i pg-primary psql -U postgres -d shop \
+  -c "SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_type='logical';"
+docker exec -i pg-primary psql -U postgres -d shop -c "TRUNCATE cdc_audit_log;"
+
+# ② 起 CDC（never 模式，纯增量演示）
+docker exec pyflink-jobmanager bash -c \
+  "cd /opt/flink && CDC_SNAPSHOT_MODE=never timeout 170 \
+   python examples/10_postgres_cdc.py --local --seconds 115 --target remote"
+
+# ③ 作业跑起来后（另开终端），制造变更
+docker exec -i pg-primary psql -U shop -d shop -c \
+  "INSERT INTO users (uid,username,email,phone,password_hash,nickname,status,level,balance,created_at,updated_at) \
+   VALUES (gen_random_uuid(),'cdc_demo','d@demo.com','13800000000','h','测试',1,1,111.11,now(),now());"
+sleep 8
+docker exec -i pg-primary psql -U shop -d shop -c \
+  "UPDATE users SET balance=222.22 WHERE username='cdc_demo';"
+sleep 8
+docker exec -i pg-primary psql -U shop -d shop -c \
+  "DELETE FROM users WHERE username='cdc_demo';"
+
+# ④ 看结果
+docker exec -i pg-primary psql -U shop -d shop \
+  -c "SELECT row_id, username, balance, op_type, op_name, op_ts FROM cdc_audit_log ORDER BY op_ts;"
+```
+
+**判断成功的硬指标：**
+```bash
+# 作业 RUNNING
+curl -s http://localhost:8081/jobs/overview
+# 复制槽 active = t（这是 CDC 真在消费 WAL 的铁证）
+docker exec -i pg-primary psql -U postgres -d shop \
+  -c "SELECT slot_name, active FROM pg_replication_slots WHERE slot_type='logical';"
+```
+
+### 8.7 CDC 排查手册
+
+| 现象 | 根因 | 解法 |
+|---|---|---|
+| `NoClassDefFoundError: JdbcSourceOptions` | 用了瘦包 | 换 `flink-sql-` 前缀胖包 |
+| `Invalid metadata key 'op'` | 元数据键名错 | 改 `row_kind` |
+| `must be superuser to create FOR ALL TABLES publication` | Debezium 想建全库 publication | 超管预建 + `publication.autocreate.mode=disabled` |
+| `permission denied for database shop` | 账号缺 `CREATE` | `GRANT CREATE ON DATABASE shop TO flink_cdc` |
+| `Couldn't obtain encoding for database shop` | pg_hba 只给了 replication | 补 `all` 规则 |
+| `pg_hba.conf rejects connection` | 没放行 CDC 账号/网段 | 加规则（`172.16.0.0/12` + `172.17.0.0/16`） |
+| `before field of UPDATE/DELETE message is null` | 没设 REPLICA IDENTITY | `ALTER TABLE ... REPLICA IDENTITY FULL` |
+| `Unsupported type:TIMESTAMP_LTZ` | JDBC pg 方言不支持 | 改 `TIMESTAMP(3)` |
+| `snapshot.mode 'latest' is invalid` | 参数值不存在 | 用 `never`（跳过快照） |
+| 作业 6 秒就 FINISHED | 有界源误判 | `source-scan-bounded-check=false` |
+| Web UI 看不到作业 | 起了进程内 MiniCluster | 配 `execution.target=remote` |
+| `please declare primary key for sink table` | JDBC sink 无主键 | 加 `PRIMARY KEY`（可用 UUID） |
+| `StreamCorruptedException` | JM/TM 的 JAR 不一致 | 两个容器都重启 |
+| `Failed to create directory for shared state` | checkpoint 目录归属 root | `chown -R flink:flink /opt/flink/checkpoints` |
+
+---
+
+## 9. 相关文档
+
+- `examples/09_postgres_integration.py` —— JDBC 联动全部示例
+- `examples/10_postgres_cdc.py` —— CDC 实时变更捕获（本章配套代码）
 - `examples/06_connectors.py` —— JDBC(MySQL) / Kafka / 文件连接器基础用法
 - `examples/08_realtime_risk_control.py` —— Kafka 实时风控完整案例
 - `docs/docker-deployment-tutorial.md` —— PyFlink Docker 部署教程（连接器放置、踩坑）
+- `docs/github-deployment.md` —— 部署到 GitHub（敏感信息处理 / JAR 策略）
 - `postgresql-course/docs/12-监控性能与连接池.md` —— PgBouncer 连接池配置
 - `postgresql-course/docs/15-DBeaver连接与可视化操作.md` —— 用 DBeaver 查看 Flink 写入的结果表
