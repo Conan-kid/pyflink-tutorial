@@ -47,8 +47,18 @@ code{font-family:"SF Mono",Consolas,"Cascadia Code",Menlo,monospace;font-size:13
 pre{background:var(--code-bg);border:1px solid var(--bd);border-radius:10px;padding:16px 18px;
   overflow-x:auto;margin:16px 0;position:relative}
 pre code{background:none;padding:0;color:#c9d1d9;font-size:12.8px;line-height:1.65}
-.lang-tag{position:absolute;top:8px;right:12px;font-size:10.5px;color:var(--tx3);
+.code-block{border:1px solid var(--bd);border-radius:10px;background:var(--code-bg);
+  margin:16px 0;overflow:hidden}
+.code-bar{display:flex;justify-content:space-between;align-items:center;
+  padding:5px 12px;background:var(--bg2);border-bottom:1px solid var(--bd)}
+.lang-tag{font-size:10.5px;color:var(--tx3);
   text-transform:uppercase;letter-spacing:.6px;font-family:monospace}
+.copy-btn{font-size:11px;color:var(--tx2);background:var(--bg3);border:1px solid var(--bd);
+  border-radius:6px;padding:2px 10px;cursor:pointer;font-family:inherit;line-height:1.6;
+  transition:.15s;opacity:.6;white-space:nowrap}
+.copy-btn:hover{opacity:1;color:var(--acc2);border-color:var(--acc)}
+.copy-btn.done{opacity:1;color:var(--ok);border-color:var(--ok)}
+.code-block pre{margin:0;border:none;border-radius:0;background:transparent}
 table{width:100%;border-collapse:collapse;margin:18px 0;font-size:13.5px;
   border:1px solid var(--bd);border-radius:10px;overflow:hidden}
 th{background:var(--bg3);text-align:left;padding:10px 14px;font-weight:500;color:var(--tx);
@@ -106,33 +116,57 @@ def highlight(code: str, lang: str) -> str:
         # ③ 再挖注释（此时字符串已被保护，不会误伤）
         esc = re.sub(r"(#[^\n]*)", lambda m: stash_it(m, "cm"), esc)
         # ④ 关键字
-        for kw in ["from", "import", "def", "class", "return", "yield", "if", "elif", "else",
-                   "for", "while", "in", "not", "and", "or", "is", "None", "True", "False",
-                   "with", "as", "try", "except", "finally", "raise", "lambda", "pass",
-                   "global", "self", "async", "await"]:
-            esc = re.sub(rf"\b{kw}\b", f'<span class="kw">{kw}</span>', esc)
+        # ⚠️ 必须【一次性】用单个正则替换全部关键字，不能 for 循环逐个替换！
+        #   原因：逐个替换时，轮到 "class" 会把【上一轮自己插入的】
+        #   <span class="kw"> 属性里的 "class" 又匹配上，标签被撕碎成：
+        #     <span <span class="kw">class</span>="kw">from</span>
+        #   页面上就直接显示成 `class="kw">from`。
+        #   合并成一个正则后，每段文本只被扫描一次，不会二次替换。
+        _kws = ("from|import|def|class|return|yield|if|elif|else|for|while|in|not|and|or|"
+                "is|None|True|False|with|as|try|except|finally|raise|lambda|pass|global|"
+                "self|async|await")
+        esc = re.sub(
+            rf"\b(?:{_kws})\b",
+            lambda m: f'<span class="kw">{m.group(0)}</span>',
+            esc,
+        )
         # ⑤ 内置/常用名
-        for nm in ["print", "len", "list", "dict", "str", "int", "float", "bool", "sorted",
-                   "range", "enumerate", "zip", "json", "re", "os", "sys", "time"]:
-            esc = re.sub(rf"\b{nm}\b(?=\()", f'<span class="fn">{nm}</span>', esc)
+        # 同样一次性替换，理由同上（这些名字若出现在标签属性里也会被误伤）
+        _fns = ("print|len|list|dict|str|int|float|bool|sorted|range|enumerate|zip|"
+                "json|re|os|sys|time")
+        esc = re.sub(
+            rf"\b(?:{_fns})\b(?=\()",
+            lambda m: f'<span class="fn">{m.group(0)}</span>',
+            esc,
+        )
 
     elif lang == "sql":
         esc = re.sub(r"(&#39;(?:[^&]|&(?!39;))*?&#39;)", lambda m: stash_it(m, "st"), esc)
         esc = re.sub(r"(--[^\n]*)", lambda m: stash_it(m, "cm"), esc)
-        for kw in ["SELECT", "FROM", "WHERE", "GROUP", "BY", "ORDER", "LIMIT", "JOIN", "LEFT",
-                   "RIGHT", "INNER", "OUTER", "ON", "INSERT", "INTO", "CREATE", "TABLE", "WITH",
-                   "AS", "AND", "OR", "NOT", "NULL", "IS", "COUNT", "SUM", "AVG", "MAX", "MIN",
-                   "ASC", "DESC", "LATERAL", "WATERMARK", "FOR", "PRIMARY", "KEY", "END", "CAST",
-                   "OVER", "PARTITION", "UNION", "ALL", "BETWEEN", "INTERVAL", "SECOND", "MINUTE",
-                   "HOUR", "DAY", "EXISTS", "VALUES", "DISTINCT", "USING", "ENFORCED"]:
-            esc = re.sub(rf"\b{kw}\b", f'<span class="kw">{kw}</span>', esc, flags=re.I)
+        # ⚠️ 一次性替换（同 Python 分支的理由，避免二次替换撕碎自己的标签）
+        #    并用 m.group(0) 保留原文大小写，不要强制转大写
+        _sql_kws = ("SELECT|FROM|WHERE|GROUP|BY|ORDER|LIMIT|JOIN|LEFT|RIGHT|INNER|OUTER|ON|"
+                    "INSERT|INTO|CREATE|TABLE|WITH|AS|AND|OR|NOT|NULL|IS|COUNT|SUM|AVG|MAX|"
+                    "MIN|ASC|DESC|LATERAL|WATERMARK|FOR|PRIMARY|KEY|END|CAST|OVER|PARTITION|"
+                    "UNION|ALL|BETWEEN|INTERVAL|SECOND|MINUTE|HOUR|DAY|EXISTS|VALUES|"
+                    "DISTINCT|USING|ENFORCED")
+        esc = re.sub(
+            rf"\b(?:{_sql_kws})\b",
+            lambda m: f'<span class="kw">{m.group(0)}</span>',
+            esc, flags=re.I,
+        )
 
     elif lang in ("bash", "sh"):
         esc = re.sub(r"(&quot;[^&\n]*?&quot;|&#39;[^&\n]*?&#39;)", lambda m: stash_it(m, "st"), esc)
         esc = re.sub(r"(#[^\n]*)", lambda m: stash_it(m, "cm"), esc)
-        for kw in ["cd", "echo", "export", "source", "bash", "python", "pip", "uv", "docker",
-                   "compose", "ls", "mkdir", "rm", "set", "if", "then", "fi", "for", "do", "done"]:
-            esc = re.sub(rf"(?<![\w.-])\b{kw}\b", f'<span class="kw">{kw}</span>', esc)
+        # ⚠️ 一次性替换（同上）。(?<![\w.-]) 保证 docker-compose 里的 compose 不被高亮
+        _sh_kws = ("cd|echo|export|source|bash|python|pip|uv|docker|compose|ls|mkdir|rm|set|"
+                   "if|then|fi|for|do|done")
+        esc = re.sub(
+            rf"(?<![\w.-])\b(?:{_sh_kws})\b",
+            lambda m: f'<span class="kw">{m.group(0)}</span>',
+            esc,
+        )
 
     elif lang in ("yaml", "yml"):
         esc = re.sub(r"(&quot;[^&\n]*?&quot;|&#39;[^&\n]*?&#39;)", lambda m: stash_it(m, "st"), esc)
@@ -143,11 +177,24 @@ def highlight(code: str, lang: str) -> str:
         esc = re.sub(r"(&quot;[^&\n]*?&quot;)", lambda m: stash_it(m, "st"), esc)
 
     # 填回被保护的内容
+    # ⚠️ 必须【循环】替换直到没有占位符，不能只 re.sub 一次！
+    #   原因：注释是在字符串【之后】挖的，所以注释内容里可能已经嵌着
+    #   字符串的占位符。例如：
+    #       # 报错：Encountered "f" at line N
+    #   先挖字符串 "f" → \x002\x00，再挖注释时整行（含 \x002\x00）被存进 stash。
+    #   最后 re.sub 是【单次扫描】，替换注释占位符时产生的文本里那个
+    #   \x002\x00 不会再被处理，就直接泄漏到页面上，显示成乱码。
     def unstash(m):
         cls, raw = stash[int(m.group(1))]
         return f'<span class="{cls}">{raw}</span>'
 
-    return re.sub(r"\x00(\d+)\x00", unstash, esc)
+    # 循环次数上限取 stash 长度 + 2，保证嵌套有多深都能还原干净
+    for _ in range(len(stash) + 2):
+        new = re.sub(r"\x00(\d+)\x00", unstash, esc)
+        if new == esc:
+            break
+        esc = new
+    return esc
 
 
 def md_table_to_html(lines):
@@ -216,8 +263,17 @@ def convert(md: str):
             else:
                 in_code = False
                 hl = highlight("\n".join(code_buf), code_lang)
+                # 代码块外面套一层 wrapper，顶栏放语言标签 + 复制按钮。
+                # 不用绝对定位把按钮浮在代码上 —— 那样长行横向滚动时会盖住内容。
                 out.append(
-                    f'<pre><span class="lang-tag">{code_lang}</span><code>{hl}</code></pre>'
+                    '<div class="code-block">'
+                    '<div class="code-bar">'
+                    f'<span class="lang-tag">{code_lang}</span>'
+                    '<button class="copy-btn" type="button" '
+                    'onclick="copyCode(this)">复制</button>'
+                    '</div>'
+                    f'<pre><code>{hl}</code></pre>'
+                    '</div>'
                 )
                 code_buf = []
             i += 1
@@ -370,6 +426,36 @@ function onScroll(){{
 }}
 document.addEventListener('scroll',onScroll,{{passive:true}});
 onScroll();
+
+/* ---- 代码块一键复制 ---- */
+function copyCode(btn){{
+  var box=btn.closest('.code-block');
+  var code=box?box.querySelector('pre code'):null;
+  /* 用 textContent 而不是 innerText：不受 CSS 影响，
+     且 <code> 里不含语言标签，复制出来的就是纯代码 */
+  var text=code?code.textContent:'';
+  var done=function(){{
+    btn.textContent='已复制';btn.classList.add('done');
+    setTimeout(function(){{btn.textContent='复制';btn.classList.remove('done');}},1500);
+  }};
+  if(navigator.clipboard&&window.isSecureContext){{
+    navigator.clipboard.writeText(text).then(done).catch(function(){{fallbackCopy(text,done);}});
+  }}else{{
+    /* file:// 打开或 http 环境下 clipboard API 不可用，走兜底 */
+    fallbackCopy(text,done);
+  }}
+}}
+function fallbackCopy(text,done){{
+  var ta=document.createElement('textarea');
+  ta.value=text;ta.setAttribute('readonly','');
+  ta.style.position='fixed';ta.style.top='-9999px';ta.style.opacity='0';
+  document.body.appendChild(ta);
+  ta.select();ta.setSelectionRange(0,text.length);
+  var ok=false;
+  try{{ok=document.execCommand('copy');}}catch(e){{ok=false;}}
+  document.body.removeChild(ta);
+  if(ok){{done();}}else{{alert('复制失败，请手动选中代码复制');}}
+}}
 </script>
 </body>
 </html>"""
